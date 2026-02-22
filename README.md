@@ -8,7 +8,6 @@ A powerful, standalone web application to chain two proxy configurations into a 
 - **Protocol Support**: Supports **VLESS**, **VMess**, **Trojan**, **Shadowsocks**, **SOCKS**, and **HTTP**.
 - **ECH Support**: Automatically parses and includes `echConfigList` for secure connections.
 - **Xray JSON Generation**: Generates a clean, optimized JSON configuration ready for use in Xray clients.
-- **Premium UI**: Modern dark-mode interface with glassmorphism, real-time parsing, and flow visualization.
 - **Client-Side Only**: All processing happens in your browser. No data is sent to any server.
 
 ## 🔗 How it Works
@@ -38,3 +37,4 @@ This project draws inspiration and logic from the [BPB-Worker-Panel](https://git
 
 ---
 Built with ❤️ for the privacy community.
+
