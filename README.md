@@ -1,5 +1,6 @@
 # Chain Proxy Builder
 
+🌐 **[Farsi](README-fa.md)** | [English](README.md)
 
 A powerful, standalone web application to chain two proxy configurations into a single **Xray** or **Sing-box** JSON configuration. This tool is specifically designed to help users combine multiple proxy layers for enhanced connection stability and fixed IP masking.
 
@@ -74,5 +75,3 @@ This project draws inspiration and logic from the [BPB-Worker-Panel](https://git
 
 ---
 Built with ❤️ for the privacy community.
-
-
