@@ -77,6 +77,7 @@
     const enhancerFp = document.getElementById('enhancer-fp');
     const enhancerCs = document.getElementById('enhancer-cs');
     const enhancerFm = document.getElementById('enhancer-fm');
+    const enhancerFmPreset = document.getElementById('enhancer-fm-preset');
     const enhancerServer = document.getElementById('enhancer-server');
     const btnEnhance = document.getElementById('btn-enhance');
     const enhanceHint = document.getElementById('enhance-hint');
@@ -2184,6 +2185,20 @@
     });
 
     // ===== Enhancer events =====
+    // Fragment presets — switching only overwrites the textarea on explicit
+    // selector change, so manual edits are always preserved.
+    const FRAGMENT_PRESETS = {
+        v1: '{"tcp": [{"type": "fragment", "settings": {"packets": "tlshello", "lengths": ["5", "94", "1"], "delays": ["0"], "maxSplit": "0"}},{"type": "fragment", "settings": {"packets": "1-1", "lengths": ["109", "1"], "delays": ["1"], "maxSplit": "355"}}]}',
+        v2: '{"tcp": [{"type": "fragment", "settings": {"packets": "tlshello", "lengths": ["0", "104", "1"], "delays": ["0"], "maxSplit": "0"}},{"type": "fragment", "settings": {"packets": "1-1", "lengths": ["114", "1"], "delays": ["1"], "maxSplit": "11"}}]}'
+    };
+    if (enhancerFmPreset) {
+        enhancerFmPreset.addEventListener('change', () => {
+            const preset = FRAGMENT_PRESETS[enhancerFmPreset.value];
+            if (preset !== undefined) {
+                enhancerFm.value = preset;
+            }
+        });
+    }
     enhancerInput.addEventListener('input', onEnhancerInput);
     enhancerInput.addEventListener('paste', () => setTimeout(onEnhancerInput, 50));
     enhancerClear.addEventListener('click', () => {

@@ -16,6 +16,7 @@ All processing happens in your browser. No data is sent to any server.
 - **Multi-Config Support**: Paste bulk proxy URL lists to parse, validate, and batch enhance all URLs cleanly without remark collision.
 - **Server Override**: The server (IP/domain) field is auto-filled from the URL for a single config and is user-editable. With multiple configs the field stays empty and only applies to all configs if you type a custom value (supports IPv4, IPv6 and domains).
 - **Fingerprint**: Default `unsafe`, with `chrome`, `firefox`, `safari`, `random` and `none` options.
+- **Fragment presets**: `fm` has `v1` (classic: `5,94,1` / `109,1` / split `355`) and `v2` (new, default: `0,104,1` / `114,1` / split `11`). Switch via the `Fragment Version` selector; the field stays editable for manual tweaks.
 - **TLS-aware**: `cs` and `fm` are only added when the config uses `tls` security. Clear a field to skip that parameter.
 - **One-click Copy**: Copy the enhanced URL straight to the clipboard.
 - **Protocol Support**: **VLESS** and **Trojan**.

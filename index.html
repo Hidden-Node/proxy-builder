@@ -416,8 +416,15 @@
                         <textarea id="enhancer-cs" class="setting-textarea" rows="3" spellcheck="false">TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256</textarea>
                     </div>
                     <div class="setting-item setting-item-wide">
-                        <label for="enhancer-fm">Final Mask (fm) — empty to skip</label>
-                        <textarea id="enhancer-fm" class="setting-textarea" rows="5" spellcheck="false">{"tcp": [{"type": "fragment", "settings": {"packets": "tlshello", "lengths": ["5", "94", "1"], "delays": ["0"], "maxSplit": "0"}},{"type": "fragment", "settings": {"packets": "1-1", "lengths": ["109", "1"], "delays": ["1"], "maxSplit": "355"}}]}</textarea>
+                        <label for="enhancer-fm-preset">Fragment Version (preset)</label>
+                        <select id="enhancer-fm-preset">
+                            <option value="v1">v1 — classic (5, 94, 1 / 109, 1 / split 355)</option>
+                            <option value="v2" selected>v2 — new (0, 104, 1 / 114, 1 / split 11)</option>
+                        </select>
+                    </div>
+                    <div class="setting-item setting-item-wide">
+                        <label for="enhancer-fm">Final Mask (fm) — empty to skip (editable)</label>
+                        <textarea id="enhancer-fm" class="setting-textarea" rows="5" spellcheck="false">{"tcp": [{"type": "fragment", "settings": {"packets": "tlshello", "lengths": ["0", "104", "1"], "delays": ["0"], "maxSplit": "0"}},{"type": "fragment", "settings": {"packets": "1-1", "lengths": ["114", "1"], "delays": ["1"], "maxSplit": "11"}}]}</textarea>
                     </div>
                 </div>
             </div>
@@ -452,7 +459,9 @@
                     <ul>
                         <li><strong>cs</strong> — TLS cipher suite list for the handshake.</li>
                         <li><strong>fm</strong> — final mask / fragment settings (packet fragmentation for TLS
-                            handshakes).</li>
+                            handshakes). Use the <code>Fragment Version</code> selector to switch between
+                            <code>v1</code> (classic) and <code>v2</code> (new, default); the field stays editable
+                            for manual tweaks.</li>
                         <li><strong>fp</strong> — TLS fingerprint (default <code>unsafe</code>, overrides the URL's own
                             value).</li>
                         <li><strong>Server</strong> — IP/domain override, auto-filled from the pasted URL; empty to keep
