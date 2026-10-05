@@ -21,9 +21,15 @@ describe('safeAtob', () => {
     });
 
     it('accepts the base64url alphabet (- and _)', () => {
-        assert.equal(safeAtob('-w=='), safeAtob('+w=='));
-        assert.equal(safeAtob('_w=='), safeAtob('/w=='));
-        assert.notEqual(safeAtob('-w=='), null);
+        // NOTE: 'سلام دنیا! تست' was chosen because its base64url form
+        // (2LPZhNin2YUg2K_ZhtuM2KchINiq2LPYqg) actually contains '_', so this
+        // round-trip exercises the -/+/ _// conversion instead of duplicating
+        // the standard-alphabet test above.
+        const text = 'سلام دنیا! تست';
+        const b64url = Buffer.from(text, 'utf8').toString('base64url');
+        assert.ok(b64url.includes('-') || b64url.includes('_'));
+        assert.equal(safeAtob(b64url), text);
+        assert.notEqual(safeAtob(b64url), null);
     });
 
     it('returns null for invalid input', () => {
