@@ -2,12 +2,11 @@
 
 🌐 **[فارسی](README-fa.md)** | [English](README.md)
 
-A powerful, standalone web application with four tools:
+A powerful, standalone web application with three tools:
 
 1. **🛡️ ECH** (default tab) — enhance a **VLESS** or **Trojan** URL by injecting `fp` (TLS fingerprint, default `chrome`) and `ech` (ECH Config List) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
-2. **🧬 Fragment + Fingerprint** — enhance a **VLESS** or **Trojan** URL by injecting `cs` (cipher suites), `fm` (fragment mask) and `fp` (TLS fingerprint) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
+2. **🧬 Fragment + Fingerprint** — enhance a **VLESS** or **Trojan** URL by injecting `cs` (cipher suites), `fm` (fragment mask) and `fp` (TLS fingerprint) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client. Its **📥 Subscription** sub-tab fetches a subscription link (or pastes its contents) to batch-enhance every **VLESS**/**Trojan** config inside, with copy/`.txt`/base64 export.
 3. **🔗 Chain Builder** — chain two proxy configurations into a single **Xray** or **Sing-box** JSON configuration for enhanced connection stability and fixed IP masking.
-4. **📥 Subscription Import** — fetch a subscription link (or paste its contents) to decode it (plain or base64) and batch-enhance every **VLESS**/**Trojan** config inside, with copy/`.txt`/base64 export.
 
 All processing happens in your browser. No data is sent to any server — fetching a subscription link contacts only the provider URL you entered, and pasted or dropped content never leaves your browser.
 
@@ -32,23 +31,17 @@ All processing happens in your browser. No data is sent to any server — fetchi
 - **Fingerprint**: Default `unsafe`, with `chrome`, `firefox`, `safari`, `random` and `none` options.
 - **Fragment presets**: `fm` has `v1` (classic: `5,94,1` / `109,1` / split `355`) and `v2` (new, default: `0,104,1` / `114,1` / split `11`). Switch via the `Fragment Version` selector; the field stays editable for manual tweaks.
 - **TLS-aware**: `cs` and `fm` are only added when the config uses `tls` security. Clear a field to skip that parameter.
-- **One-click Copy**: Copy the enhanced URL straight to the clipboard.
-- **Protocol Support**: **VLESS** and **Trojan**.
+- **Subscription sub-tab**: Paste a subscription link to fetch it directly in your browser, decode it (plain or base64) and batch-enhance every VLESS/Trojan config inside — or paste its contents / drop a saved `.txt` file to skip fetching. Uses the same `fp` / `cs` / `fm` options above; the server override is ignored (each config keeps its own address).
+- **Blocked Providers**: If the provider sends no CORS headers, the error shows 3 quick steps and an **Open link** button opens the URL in a new tab for copying.
+- **Export**: Copy to clipboard, download as `.txt` (one per line) or base64 `.txt` (standard subscription body).
+- **No ECH here**: ECH is applied only in the **ECH** tab — subscription entries never get an `ech` parameter.
+- **Protocol Support**: **VLESS** and **Trojan** are enhanced; other protocols found inside a subscription are counted as skipped.
 
 ### 🔗 Chain Builder
 - **Dual Config Chaining**: Easily chain a primary proxy (e.g., Worker/CDN) with a secondary chain proxy.
 - **Protocol Support**: Supports **VLESS**, **VMess**, **Trojan**, **Shadowsocks**, **SOCKS**, **HTTP**, and **SSH**.
 - **Dual Output**: Generates both **Xray** and **Sing-box** JSON configurations.
 - **ECH Support**: Automatically parses and includes ECH config for secure connections.
-
-### 📥 Subscription Import
-- **Fetch & Enhance**: Paste a subscription link to fetch it directly in your browser, decode it (plain or base64) and batch-enhance every VLESS/Trojan config inside.
-- **Blocked Providers**: If the provider sends no CORS headers, the error shows 3 quick steps and an **Open link** button opens the URL in a new tab for copying.
-- **Paste or Drop**: A pasted config list/base64 blob — or a dropped saved `.txt` file — is enhanced with no fetch at all.
-- **Shared Options**: Uses the same `fp` / `cs` / `fm` values as the Fragment + Fingerprint tab; the server override is ignored (each config keeps its own address).
-- **No ECH here**: ECH is applied only in the **ECH** tab — subscription entries never get an `ech` parameter.
-- **Export**: Copy to clipboard, download as `.txt` (one per line) or base64 `.txt`.
-- **Protocol Support**: **VLESS** and **Trojan** are enhanced; other protocols found inside are counted as skipped.
 
 | Output | Client |
 |--------|--------|
@@ -82,6 +75,7 @@ This ensures that your final outgoing IP address is that of the **Chain Proxy**,
 2. Paste your **VLESS** or **Trojan** URL.
 3. Adjust the options if needed: server override (auto-filled from the URL), fingerprint, cipher suites, final mask.
 4. Click **"Enhance URL"** and copy the resulting link — import it into your client.
+5. For bulk configs, switch to the **📥 Subscription** sub-tab: paste your subscription **link** and click **"Fetch & Enhance"** — or paste its **contents** (or drop a saved `.txt` file) to skip fetching. If fetching is blocked, follow the 3 steps shown (open the link with **Open link**, copy, paste, fetch again). Copy or download the enhanced configs (`.txt` or base64 `.txt`).
 
 #### ✅ Client Requirements
 - **Windows**: use [PattN](https://github.com/patterniha/PattN).
@@ -95,19 +89,13 @@ This ensures that your final outgoing IP address is that of the **Chain Proxy**,
 4. **Generate**: Click "Generate Chained Config" to get your JSON.
 5. **Deploy**: Copy the JSON or download it as a file to use in your preferred client.
 
-### 📥 Subscription Import
-1. Switch to the **Subscription** tab.
-2. Paste your subscription **link** and click **"Fetch & Enhance"** — or paste its **contents** (or drop a saved `.txt` file) to skip fetching.
-3. If fetching is blocked, follow the 3 steps shown (open the link with **Open link**, copy, paste, fetch again).
-4. Copy or download the enhanced configs (`.txt` or base64 `.txt`).
-
 ## 📋 Supported Protocols
 
 | Protocol | URL Format | Notes |
 |----------|-----------|-------|
-| **VLESS** | `vless://uuid@server:port?params` | Supported by all four tools |
+| **VLESS** | `vless://uuid@server:port?params` | Supported by all three tools |
 | **VMess** | `vmess://base64-json` | Chain Builder only |
-| **Trojan** | `trojan://password@server:port?params` | Supported by all four tools |
+| **Trojan** | `trojan://password@server:port?params` | Supported by all three tools |
 | **Shadowsocks** | `ss://base64(method:pass)@server:port` | Chain Builder only — no transport (ws, grpc, etc.) and no TLS support |
 | **SOCKS** | `socks://user:pass@server:port` | Chain Builder only — must include username and password |
 | **HTTP** | `http://user:pass@server:port` | Chain Builder only — must include username and password |

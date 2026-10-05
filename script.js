@@ -68,7 +68,6 @@
     const mainTabs = document.querySelectorAll('.main-tab');
     const viewChain = document.getElementById('view-chain');
     const viewEnhancer = document.getElementById('view-enhancer');
-    const viewSub = document.getElementById('view-sub');
     const viewEch = document.getElementById('view-ech');
 
     // Enhancer elements
@@ -83,10 +82,6 @@
     const enhancerServer = document.getElementById('enhancer-server');
     const btnEnhance = document.getElementById('btn-enhance');
     const enhanceHint = document.getElementById('enhance-hint');
-    const enhancerOutputSection = document.getElementById('enhancer-output-section');
-    const enhancerOutputUrl = document.getElementById('enhancer-output-url');
-    const enhancerOutputRemark = document.getElementById('enhancer-output-remark');
-    const btnCopyEnhancer = document.getElementById('btn-copy-enhancer');
     const enhancerCard = document.getElementById('enhancer-card');
 
     // ECH tab elements (own card — not shared with other tabs)
@@ -882,7 +877,7 @@
         const val = enhancerInput.value.trim();
         const lines = extractLines(val);
         if (lines.length === 0) {
-            enhancerOutputSection.style.display = 'none';
+            subOutputSection.style.display = 'none';
             return;
         }
 
@@ -898,7 +893,7 @@
         });
 
         if (enhancedUrls.length === 0) {
-            enhancerOutputSection.style.display = 'none';
+            subOutputSection.style.display = 'none';
             return;
         }
 
@@ -910,10 +905,13 @@
                 : '✨ Enhanced')
             : `✨ Enhanced ${count} URLs`;
 
-        enhancerOutputRemark.textContent = remark;
-        enhancerOutputUrl.textContent = enhancedUrls.join('\n\n');
-        enhancerOutputSection.style.display = 'block';
-        enhancerOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Shared output (same section the Subscription mode renders into):
+        // URL mode keeps blank-line separation; downloads export this text as-is.
+        subResults = enhancedUrls;
+        subOutputRemark.textContent = remark;
+        subOutputUrl.textContent = enhancedUrls.join('\n\n');
+        subOutputSection.style.display = 'block';
+        subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     // ===== ECH Enhancer (own tab — fp + ech only) =====
@@ -3085,9 +3083,8 @@
         subHint.style.color = '#4cdf86';
     }
 
-    // Options live in this tab (shared node with the Enhancer tab), so changing
-    // fp / cs / fm re-enhances the configs fetched earlier instead of leaving a
-    // stale output on screen.
+    // Options live in the same tab, so changing fp / cs / fm re-enhances
+    // the configs fetched earlier instead of leaving a stale output on screen.
     function scheduleSubRender() {
         if (subBusy || !subRawConfigs.length) return;
         clearTimeout(subRenderTimer);
@@ -3259,16 +3256,17 @@
     // Re-run the enhancement when the shared options change (selects vs textareas).
     [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
     [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
-    btnCopySub.addEventListener('click', () => onCopySub(btnCopySub, subResults.join('\n')));
+    btnCopySub.addEventListener('click', () => onCopySub(btnCopySub, subOutputUrl.textContent));
     btnDownloadSub.addEventListener('click', () => {
         if (!subResults.length) return;
-        downloadText('enhanced-configs.txt', subResults.join('\n') + '\n');
+        downloadText('enhanced-configs.txt', subOutputUrl.textContent + '\n');
     });
     btnDownloadSubB64.addEventListener('click', () => {
         if (!subResults.length) return;
         // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
         // Chunked because a spread over a few hundred KB overflows the arg limit.
-        const bytes = new TextEncoder().encode(subResults.join('\n'));
+        // Exports exactly what is displayed (URL mode uses blank-line separation).
+        const bytes = new TextEncoder().encode(subOutputUrl.textContent);
         let bin = '';
         for (let i = 0; i < bytes.length; i += 0x8000) {
             bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
@@ -3277,24 +3275,13 @@
     });
 
     // ===== Main Tab switching =====
-    // The Enhancement Options card is one shared node: it is moved into whichever
-    // of the two enhancer-driven tabs is active, so both always read the same
-    // fp / cs / fm values instead of drifting apart as two copies would.
-    const enhancerOptionsCard = document.getElementById('enhancer-options-card');
-    const enhancerOptionsSlot = document.getElementById('enhancer-options-slot');
-    const subOptionsSlot = document.getElementById('sub-options-slot');
-
     function switchMainTab(viewName) {
         mainTabs.forEach(t => {
             t.classList.toggle('active', t.dataset.view === viewName);
         });
         viewChain.style.display = viewName === 'chain' ? '' : 'none';
         viewEnhancer.style.display = viewName === 'enhancer' ? '' : 'none';
-        viewSub.style.display = viewName === 'sub' ? '' : 'none';
         viewEch.style.display = viewName === 'ech' ? '' : 'none';
-
-        const optionsTarget = viewName === 'sub' ? subOptionsSlot : enhancerOptionsSlot;
-        if (enhancerOptionsCard && optionsTarget) optionsTarget.appendChild(enhancerOptionsCard);
         document.querySelectorAll('.protocol-badges .badge').forEach(badge => {
             const show = viewName === 'chain' || ['vless', 'trojan'].includes(badge.dataset.protocol);
             badge.style.display = show ? '' : 'none';
@@ -3539,28 +3526,6 @@
         onEnhancerInput();
     });
     btnEnhance.addEventListener('click', onEnhance);
-    btnCopyEnhancer.addEventListener('click', () => {
-        const text = enhancerOutputUrl.textContent;
-        if (!text) return;
-        // file:// / plain http have no async clipboard — fail with guidance
-        // instead of an uncaught TypeError (sync throw, .catch can't see it).
-        if (!navigator.clipboard || !navigator.clipboard.writeText) {
-            enhanceHint.textContent = 'Copy failed — select the output text and copy it manually';
-            enhanceHint.style.color = '#f0c040';
-            return;
-        }
-        navigator.clipboard.writeText(text).then(() => {
-            btnCopyEnhancer.classList.add('copied');
-            btnCopyEnhancer.innerHTML = '<span class="copy-icon">✅</span> Copied!';
-            setTimeout(() => {
-                btnCopyEnhancer.classList.remove('copied');
-                btnCopyEnhancer.innerHTML = '<span class="copy-icon">📋</span> Copy';
-            }, 2000);
-        }).catch(() => {
-            enhanceHint.textContent = 'Copy failed — select the output text and copy it manually';
-            enhanceHint.style.color = '#f0c040';
-        });
-    });
     echSubInput.addEventListener('input', onEchSubInput);
     echSubInput.addEventListener('paste', () => setTimeout(onEchSubInput, 50));
     echSubClear.addEventListener('click', () => {
@@ -3596,6 +3561,32 @@
     }
     echSubTabs.forEach(tab => {
         tab.addEventListener('click', () => switchEchSubTab(tab.dataset.echsubtab));
+    });
+    // Fragment + Fingerprint input-mode sub-tabs (same pattern as ECH:
+    // scoped to #view-enhancer so the sing-box panels driven by the
+    // generic switchSubTab are untouched).
+    const enhancerSubTabs = Array.from(document.querySelectorAll('#view-enhancer .sub-tab'));
+    const enhancerSubPanels = {
+        url: document.getElementById('enhancer-subpanel-url'),
+        sub: document.getElementById('enhancer-subpanel-sub')
+    };
+    // Generate buttons live below the shared options card, so they toggle
+    // with the panels.
+    const enhancerGenerateSections = {
+        url: document.getElementById('enhancer-generate-url'),
+        sub: document.getElementById('enhancer-generate-sub')
+    };
+    function switchEnhancerSubTab(name) {
+        enhancerSubTabs.forEach(t => t.classList.toggle('active', t.dataset.enhsubtab === name));
+        Object.entries(enhancerSubPanels).forEach(([key, panel]) => {
+            if (panel) panel.classList.toggle('active', key === name);
+        });
+        Object.entries(enhancerGenerateSections).forEach(([key, section]) => {
+            if (section) section.classList.toggle('active', key === name);
+        });
+    }
+    enhancerSubTabs.forEach(tab => {
+        tab.addEventListener('click', () => switchEnhancerSubTab(tab.dataset.enhsubtab));
     });
     // Downloads export exactly what is displayed, so Copy and both files
     // always agree (URL mode shows blank-line separation, sub mode single).

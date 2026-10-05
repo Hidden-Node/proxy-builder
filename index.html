@@ -44,7 +44,6 @@
         <nav class="main-tabs">
             <button class="main-tab active" data-view="ech">🛡️ ECH</button>
             <button class="main-tab" data-view="enhancer">🧬 Fragment + Fingerprint</button>
-            <button class="main-tab" data-view="sub">📥 Subscription</button>
             <button class="main-tab" data-view="chain">🔗 Chain Builder</button>
         </nav>
 
@@ -551,6 +550,18 @@
 
         <!-- ===== View: Fragment + Fingerprint Enhancer ===== -->
         <div id="view-enhancer" style="display:none;">
+            <!-- Enhancer input mode tabs (same pattern as the ECH tab) -->
+            <div class="sub-tabs">
+                <button class="sub-tab active" data-enhsubtab="url">
+                    🔗 URL
+                </button>
+                <button class="sub-tab" data-enhsubtab="sub">
+                    📥 Subscription
+                </button>
+            </div>
+
+            <!-- Sub Panel: URL input -->
+            <div class="sub-panel active" id="enhancer-subpanel-url">
             <!-- Input -->
             <div class="config-card" id="enhancer-card">
                 <div class="card-header">
@@ -574,8 +585,37 @@
                 </div>
                 <div class="parsed-info" id="enhancer-parsed"></div>
             </div>
+            </div>
 
-            <!-- Options (shared card — moved into the active tab on switch) -->
+            <!-- Sub Panel: Subscription input -->
+            <div class="sub-panel" id="enhancer-subpanel-sub">
+            <!-- Subscription input (same box decodes plain/base64, link or contents) -->
+            <div class="config-card" id="sub-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">📥</span>
+                        <div>
+                            <h2>Subscription Input</h2>
+                            <p class="card-hint">Paste a subscription link — or its contents — fetches it, decodes (plain or
+                                        base64) and enhances every config inside. You can also drop a saved .txt file
+                                        onto this card.</p>
+                        </div>
+                    </div>
+                    <div class="card-header-right">
+                        <span class="protocol-tag" id="sub-protocol-tag">—</span>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <textarea id="sub-url" class="config-input sub-url-input" rows="2"
+                        placeholder="https://example.com/sub/your-token — or paste the subscription contents"
+                        spellcheck="false" autocomplete="off"></textarea>
+                    <button class="btn-clear" id="sub-clear" title="Clear">✕</button>
+                </div>
+                <div class="parsed-info" id="sub-parsed"></div>
+            </div>
+            </div>
+
+            <!-- Options (own card — stays in this tab) -->
             <div id="enhancer-options-slot">
                 <div class="settings-card" id="enhancer-options-card">
                 <h3 class="settings-title">⚙️ Enhancement Options</h3>
@@ -615,27 +655,44 @@
             </div>
             </div>
 
-            <!-- Generate -->
-            <div class="generate-section">
+            <!-- Generate (below the shared options, like the ECH tab) -->
+            <div class="generate-section sub-panel active" id="enhancer-generate-url">
                 <button class="btn-generate" id="btn-enhance" disabled>
                     <span class="btn-icon">✨</span>
                     Enhance URL
                 </button>
                 <p class="generate-hint" id="enhance-hint">Paste VLESS or Trojan URL(s) above to enable</p>
             </div>
+            <div class="generate-section sub-panel" id="enhancer-generate-sub">
+                <button class="btn-generate" id="btn-sub" disabled>
+                    <span class="btn-icon">⚡</span> Fetch &amp; Enhance
+                </button>
+                <button class="btn-subtle btn-open-link" id="btn-open-sub" disabled
+                    title="Open the subscription link in a new tab">
+                    <span>↗</span> Open link
+                </button>
+                <p class="generate-hint" id="sub-hint">Paste a subscription link above to enable</p>
+            </div>
 
-            <!-- Output -->
-            <div class="output-section" id="enhancer-output-section" style="display:none;">
+            <!-- Output (shared: URL and Subscription modes both render here) -->
+            <div class="output-section" id="sub-output-section" style="display:none;">
                 <div class="output-header">
-                    <h3>📋 Enhanced URL(s)</h3>
+                    <h3>📋 Enhanced Configs</h3>
                     <div class="output-actions">
-                        <button class="btn-copy" id="btn-copy-enhancer" title="Copy to clipboard">
+                        <button class="btn-copy" id="btn-copy-sub" title="Copy to clipboard">
                             <span class="copy-icon">📋</span> Copy
+                        </button>
+                        <button class="btn-download" id="btn-download-sub" title="Download as .txt (one config per line)">
+                            <span class="download-icon">💾</span> .txt
+                        </button>
+                        <button class="btn-download" id="btn-download-sub-b64"
+                            title="Download as base64 .txt (subscription format)">
+                            <span class="download-icon">🔐</span> base64 .txt
                         </button>
                     </div>
                 </div>
-                <div class="output-remark" id="enhancer-output-remark"></div>
-                <pre class="output-code enhancer-output-code"><code id="enhancer-output-url"></code></pre>
+                <div class="output-remark" id="sub-output-remark"></div>
+                <pre class="output-code enhancer-output-code"><code id="sub-output-url"></code></pre>
             </div>
 
             <details class="info-section">
@@ -668,82 +725,11 @@
                 </div>
             </details>
 
-            <footer class="footer">
-                <p>Project Repository: <a href="https://github.com/Hidden-Node/proxy-builder"
-                        target="_blank">Hidden-Node/proxy-builder</a></p>
-                <p>Based on <a href="https://github.com/patterniha/PattNG" target="_blank">PattNG</a> export-to-clipboard
-                    logic (cs / fm / fp injection)</p>
-            </footer>
-        </div>
-
-        <!-- ===== View: Subscription Import ===== -->
-        <div id="view-sub" style="display:none;">
-            <!-- Input -->
-            <div class="config-card" id="sub-card">
-                <div class="card-header">
-                    <div class="card-title">
-                        <span class="card-icon">📥</span>
-                        <div>
-                            <h2>Subscription Import</h2>
-                            <p class="card-hint">Paste a subscription link — or its contents — fetches it, decodes (plain or
-                                        base64) and enhances every config inside. You can also drop a saved .txt file
-                                        onto this card.</p>
-                        </div>
-                    </div>
-                    <div class="card-header-right">
-                        <span class="protocol-tag" id="sub-protocol-tag">—</span>
-                    </div>
-                </div>
-                <div class="input-group">
-                    <textarea id="sub-url" class="config-input sub-url-input" rows="2"
-                        placeholder="https://example.com/sub/your-token — or paste the subscription contents"
-                        spellcheck="false" autocomplete="off"></textarea>
-                    <button class="btn-clear" id="sub-clear" title="Clear">✕</button>
-                </div>
-                <div class="parsed-info" id="sub-parsed"></div>
-            </div>
-
-            <!-- Options (shared card — moved here from the Enhancer tab) -->
-            <div id="sub-options-slot"></div>
-
-            <!-- Generate -->
-            <div class="generate-section">
-                <button class="btn-generate" id="btn-sub" disabled>
-                    <span class="btn-icon">⚡</span> Fetch &amp; Enhance
-                </button>
-                <button class="btn-subtle btn-open-link" id="btn-open-sub" disabled
-                    title="Open the subscription link in a new tab">
-                    <span>↗</span> Open link
-                </button>
-                <p class="generate-hint" id="sub-hint">Paste a subscription link above to enable</p>
-            </div>
-
-            <!-- Output -->
-            <div class="output-section" id="sub-output-section" style="display:none;">
-                <div class="output-header">
-                    <h3>📋 Enhanced Configs</h3>
-                    <div class="output-actions">
-                        <button class="btn-copy" id="btn-copy-sub" title="Copy to clipboard">
-                            <span class="copy-icon">📋</span> Copy
-                        </button>
-                        <button class="btn-download" id="btn-download-sub" title="Download as .txt (one config per line)">
-                            <span class="download-icon">💾</span> .txt
-                        </button>
-                        <button class="btn-download" id="btn-download-sub-b64"
-                            title="Download as base64 .txt (subscription format)">
-                            <span class="download-icon">🔐</span> base64 .txt
-                        </button>
-                    </div>
-                </div>
-                <div class="output-remark" id="sub-output-remark"></div>
-                <pre class="output-code enhancer-output-code"><code id="sub-output-url"></code></pre>
-            </div>
-
             <details class="info-section">
                 <summary>ℹ️ How Subscription Import Works</summary>
                 <div class="info-content">
                     <p>Paste a subscription link and this tool fetches it in your browser, then runs every config
-                        through the <strong>Fragment + Fingerprint</strong> enhancer.</p>
+                        through the <strong>Fragment + Fingerprint</strong> options above.</p>
                     <ul>
                         <li><strong>Fetch</strong> — fetched directly in your browser (works when the provider sends CORS headers);
                             if the provider blocks browser access, the link's content must be pasted manually.
@@ -755,9 +741,9 @@
                         <li><strong>Decode</strong> — accepts both plain-text lists and base64-encoded subscription
                             bodies.</li>
                         <li><strong>Enhance</strong> — uses the <code>fp</code> / <code>cs</code> / <code>fm</code>
-                            values set in the <strong>Fragment + Fingerprint</strong> tab. Fragment presets apply to
+                            values set in the <strong>options above</strong>. Fragment presets apply to
                             TLS configs only. ECH is handled in the <strong>ECH</strong> tab and is not applied here.</li>
-                        <li><strong>Server override</strong> from the Enhancer tab is ignored here — a subscription
+                        <li><strong>Server override</strong> in the options above is ignored here — a subscription
                             holds many servers, so each config keeps its own address.</li>
                     </ul>
                     <h4>Output Formats</h4>
