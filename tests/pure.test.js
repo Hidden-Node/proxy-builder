@@ -6,7 +6,7 @@ const {
     safeAtob, safeDecode, extractLines,
     getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
     ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
-    subValidate
+    subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate
 } = pure;
 
 describe('safeAtob', () => {
@@ -80,6 +80,28 @@ describe('getEchQueryServer', () => {
         assert.equal(getEchQueryServer(Buffer.from('fake-ech-config-list').toString('base64')), '');
         assert.equal(getEchQueryServer('udp://1.1.1.1'), '');
         assert.equal(getEchQueryServer(''), '');
+    });
+});
+
+describe('subIsLink', () => {
+    it('accepts a bare http(s) URL, rejects schemes and whitespace', () => {
+        assert.equal(subIsLink('https://example.com/sub/token'), true);
+        assert.equal(subIsLink('vless://x'), false);
+        assert.equal(subIsLink('two words https://x'), false);
+    });
+});
+
+describe('subLooksLikeContent', () => {
+    it('spots proxy lines, rejects junk', () => {
+        assert.equal(subLooksLikeContent('vless://uuid@example.com:443?security=tls#remark'), true);
+        assert.equal(subLooksLikeContent('hello-world-no-scheme'), false);
+    });
+});
+
+describe('subLooksLikeProxy', () => {
+    it('flags host:port URLs, not subscription links', () => {
+        assert.equal(subLooksLikeProxy('http://host:8080'), true);
+        assert.equal(subLooksLikeProxy('https://example.com/sub/token'), false);
     });
 });
 
