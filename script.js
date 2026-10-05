@@ -2311,7 +2311,7 @@
     function renderParsedInfo(params, container) {
         if (!params || params.error) {
             container.innerHTML = params
-                ? `<div class="error-msg">⚠️ ${params.error}</div>`
+                ? `<div class="error-msg">⚠️ ${escapeHtml(String(params.error))}</div>`
                 : '';
             return;
         }
