@@ -69,6 +69,7 @@
     const viewChain = document.getElementById('view-chain');
     const viewEnhancer = document.getElementById('view-enhancer');
     const viewSub = document.getElementById('view-sub');
+    const viewEch = document.getElementById('view-ech');
 
     // Enhancer elements
     const enhancerInput = document.getElementById('enhancer-input');
@@ -88,11 +89,59 @@
     const btnCopyEnhancer = document.getElementById('btn-copy-enhancer');
     const enhancerCard = document.getElementById('enhancer-card');
 
+    // ECH tab elements (own card — not shared with other tabs)
+    const echInput = document.getElementById('ech-input');
+    const echClear = document.getElementById('ech-clear');
+    const echParsed = document.getElementById('ech-parsed');
+    const echProtocolTag = document.getElementById('ech-protocol-tag');
+    const echServer = document.getElementById('ech-server');
+    const echFp = document.getElementById('ech-fp');
+    const echPreset = document.getElementById('ech-preset');
+    const echText = document.getElementById('ech-text');
+    const btnEchEnhance = document.getElementById('btn-ech-enhance');
+    const echHint = document.getElementById('ech-hint');
+    const echOutputSection = document.getElementById('ech-output-section');
+    const echOutputUrl = document.getElementById('ech-output-url');
+    const echOutputRemark = document.getElementById('ech-output-remark');
+    const btnCopyEch = document.getElementById('btn-copy-ech');
+    const echCard = document.getElementById('ech-card');
+
+    // ECH subscription input (paste contents or fetch a link — shared output)
+    const echSubCard = document.getElementById('ech-sub-card');
+    const echSubInput = document.getElementById('ech-sub-input');
+    const echSubClear = document.getElementById('ech-sub-clear');
+    const echSubParsed = document.getElementById('ech-sub-parsed');
+    const btnEchSub = document.getElementById('btn-ech-sub');
+    const echSubHint = document.getElementById('ech-sub-hint');
+    const btnEchOpenSub = document.getElementById('btn-ech-open-sub');
+    const btnDownloadEch = document.getElementById('btn-download-ech');
+    const btnDownloadEchB64 = document.getElementById('btn-download-ech-b64');
+    let echOutputList = [];
+    let echSubRaw = [];
+    let echSubBusy = false;
+    let echLastSource = '';
+    let echSubProgressTimer = null;
+
+    // Throttled progress text (150 ms), mirroring the Subscription tab — the
+    // fetch callback fires per chunk, which is too noisy for large bodies.
+    function onEchSubProgress(loaded, total) {
+        if (echSubProgressTimer) return;
+        echSubProgressTimer = setTimeout(() => {
+            echSubProgressTimer = null;
+            if (!echSubBusy) return;
+            const kb = Math.round(loaded / 1024);
+            echSubHint.textContent = total
+                ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
+                : 'Fetching… ' + kb + ' KB';
+        }, 150);
+    }
+
     let parsedConfig1 = null;
     let parsedConfig2 = null;
     let sshMode1 = false;
     let sshMode2 = false;
     let lastAutoServer = '';
+    let lastAutoEchServer = '';
 
     // ===== Base64 Helpers =====
     function safeAtob(str) {
@@ -136,6 +185,46 @@
         } catch {
             return str;
         }
+    }
+
+    // ECH query server: only the DNS-query form "domain+dns-server"
+    // (e.g. "cloudflare-ech.com+https://dns.alidns.com/dns-query" or
+    // "cloudflare-ech.com+udp://1.1.1.1") carries a queryable domain.
+    // A raw base64 ECHConfigList can itself contain '+' (base64 alphabet),
+    // so it must not be split — return '' so callers fall back to sni/server.
+    // Split on whitespace too: a badly-encoded external link may carry a
+    // literal '+' which URLSearchParams decodes to a space.
+    function getEchQueryServer(ech) {
+        if (!ech || !ech.includes('://')) return '';
+        const head = ech.split(/[+\s]/)[0].trim();
+        // A bare resolver with no domain part ("udp://1.1.1.1" or a lone
+        // "https://..." URL from a mistyped field) is not a queryable name —
+        // callers fall back to sni/server instead of emitting a URL there.
+        if (!head || head.includes('://')) return '';
+        return head;
+    }
+
+    // Default DNS appended to a bare ECH domain, BPB-style:
+    // "cloudflare-ech.com" becomes "cloudflare-ech.com+udp://8.8.8.8".
+    const ECH_DNS_DEFAULT = 'udp://8.8.8.8';
+
+    // Bare ECH domain (just a hostname, no resolver part). Dots never appear
+    // in standard/base64url alphabets, so a dot-containing value without
+    // '://', '+', '/' or '=' cannot be a base64 ECHConfigList.
+    function isBareEchDomain(value) {
+        if (!value || value.includes('://')) return false;
+        if (/[\s+=/]/.test(value)) return false;
+        return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
+    }
+
+    // Normalize the enhancer textarea value before writing the URL param:
+    // bare domains are completed with the default DNS, full DNS-query forms
+    // and raw base64 pass through untouched, empty stays empty (skip ech).
+    function normalizeEchInput(raw) {
+        const value = (raw || '').trim();
+        if (!value) return '';
+        if (isBareEchDomain(value)) return value + '+' + ECH_DNS_DEFAULT;
+        return value;
     }
 
     // ===== URL Parser =====
@@ -827,6 +916,503 @@
         enhancerOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // ===== ECH Enhancer (own tab — fp + ech only) =====
+
+    function enhanceEchURL(raw, opts) {
+        const url = raw.trim();
+        if (!url) return { error: 'No URL provided' };
+        // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
+        // as well, and the bulk path would otherwise count those as "skipped".
+        const scheme = url.slice(0, url.indexOf('://')).toLowerCase();
+        if (scheme !== 'vless' && scheme !== 'trojan') {
+            return { error: 'Only VLESS and Trojan URLs are supported' };
+        }
+
+        let u;
+        try {
+            u = new URL(url);
+        } catch (e) {
+            return { error: 'Failed to parse URL: ' + e.message };
+        }
+
+        const params = u.searchParams;
+        // Missing security means plaintext ('none') — Trojan links are not
+        // always TLS (e.g. port-80 ws links with no security param), so never
+        // assume 'tls' here; that would inject ech into a plaintext config.
+        const security = params.get('security') || 'none';
+
+        // Server override — auto-filled from URL, user-editable, empty keeps original.
+        // opts.ignoreServer skips it for bulk input: a subscription holds many
+        // servers, so rewriting every entry to one address would break the list.
+        const server = (opts && opts.ignoreServer) ? '' : echServer.value.trim();
+        if (server) {
+            const host = server.includes(':') && !server.startsWith('[')
+                ? '[' + server + ']'
+                : server;
+            try {
+                u.hostname = host;
+            } catch (e) {
+                return { error: 'Invalid server address: ' + e.message };
+            }
+        }
+
+        // Fingerprint — applied when set; 'none'/empty removes an existing value
+        // so "clear to skip" also strips a previously-enhanced URL.
+        const fp = echFp.value.trim();
+        if (fp && fp !== 'none') {
+            params.set('fp', fp);
+        } else {
+            params.delete('fp');
+        }
+
+        // ECH config list — only meaningful with TLS. A bare domain
+        // ("cloudflare-ech.com") is completed with the default DNS, BPB-style;
+        // URLSearchParams serializes the '+' separator as %2B, which is what
+        // Xray expects. Empty removes an existing value ("clear to skip").
+        if (security === 'tls') {
+            const ech = normalizeEchInput(echText.value);
+            if (ech) {
+                params.set('ech', ech);
+            } else {
+                params.delete('ech');
+            }
+        }
+
+        // URLSearchParams encodes spaces as '+', but v2ray-style clients use '%20'
+        u.search = u.search.replace(/\+/g, '%20');
+
+        return { url: u.toString() };
+    }
+
+    function onEchInput() {
+        const val = echInput.value.trim();
+        const lines = extractLines(val);
+
+        // The output box is shared with the subscription input — any edit here
+        // invalidates whatever is shown, whichever input produced it.
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        echLastSource = '';
+        echOutputList = [];
+        let parsedList = [];
+        let unsupportedCount = 0;
+        let invalidCount = 0;
+
+        if (lines.length > 0) {
+            lines.forEach(line => {
+                const p = parseProxyURLSingle(line);
+                if (p && !p.error) {
+                    if (p.protocol === 'vless' || p.protocol === 'trojan') {
+                        parsedList.push(p);
+                    } else {
+                        unsupportedCount++;
+                    }
+                } else {
+                    invalidCount++;
+                }
+            });
+        }
+
+        // Auto-fill the server field from the URL — only for a single config.
+        if (parsedList.length === 1) {
+            const firstServer = parsedList[0].server || '';
+            const current = echServer.value.trim();
+            if (!current || current === lastAutoEchServer || current === firstServer) {
+                echServer.value = firstServer;
+                lastAutoEchServer = firstServer;
+            }
+        } else if (parsedList.length > 1) {
+            const current = echServer.value.trim();
+            if (!current || current === lastAutoEchServer) {
+                echServer.value = '';
+                lastAutoEchServer = '';
+            }
+        } else if (!echServer.value.trim()) {
+            lastAutoEchServer = '';
+        }
+
+        if (lines.length > 0) {
+            if (parsedList.length > 0) {
+                renderParsedInfo(parsedList.length === 1 ? parsedList[0] : parsedList, echParsed);
+                const protocols = Array.from(new Set(parsedList.map(p => p.protocol)));
+                if (protocols.length === 1) {
+                    updateProtocolTag(echProtocolTag, parsedList[0]);
+                } else {
+                    echProtocolTag.textContent = 'MULTI';
+                    echProtocolTag.classList.add('active');
+                    echProtocolTag.style.color = '#7c5cff';
+                    echProtocolTag.style.borderColor = '#7c5cff4d';
+                    echProtocolTag.style.background = '#7c5cff1a';
+                }
+            } else {
+                renderParsedInfo({
+                    error: unsupportedCount > 0
+                        ? 'Only VLESS and Trojan URLs are supported'
+                        : 'Failed to parse URL'
+                }, echParsed);
+                updateProtocolTag(echProtocolTag, null);
+            }
+        } else {
+            renderParsedInfo(null, echParsed);
+            updateProtocolTag(echProtocolTag, null);
+        }
+
+        echCard.classList.remove('valid', 'invalid');
+        if (lines.length > 0 && parsedList.length > 0) {
+            echCard.classList.add('valid');
+        } else if (lines.length > 0) {
+            echCard.classList.add('invalid');
+        }
+
+        const count = parsedList.length;
+        btnEchEnhance.disabled = count === 0;
+        btnEchEnhance.innerHTML = `<span class="btn-icon">✨</span> Enhance ${count > 1 ? count + ' URLs' : 'URL'}`;
+        echHint.textContent = count > 0
+            ? `Ready to enhance ${count} URL${count > 1 ? 's' : ''}!`
+            : 'Paste VLESS or Trojan URL(s) above to enable';
+        echHint.style.color = count > 0 ? '#4cdf86' : '';
+    }
+
+    function onEchEnhance() {
+        const val = echInput.value.trim();
+        const lines = extractLines(val);
+        if (lines.length === 0) {
+            echOutputSection.style.display = 'none';
+            return;
+        }
+
+        const enhancedUrls = [];
+        let firstEnhanced = null;
+        lines.forEach(line => {
+            const p = parseProxyURLSingle(line);
+            if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
+                const res = enhanceEchURL(line);
+                if (res && res.url) {
+                    if (!firstEnhanced) firstEnhanced = p;
+                    enhancedUrls.push(res.url);
+                }
+            }
+        });
+
+        if (enhancedUrls.length === 0) {
+            echOutputSection.style.display = 'none';
+            echOutputList = [];
+            echHint.textContent = 'Could not enhance — check the URLs and the Server override';
+            echHint.style.color = '#f05050';
+            return;
+        }
+
+        const count = enhancedUrls.length;
+        const firstParsed = firstEnhanced;
+        // Show the post-override address: read it back from the enhanced URL
+        // rather than the pre-enhance parse result.
+        let remarkHost = firstParsed ? `${firstParsed.server}:${firstParsed.port}` : '';
+        try {
+            const firstOut = new URL(enhancedUrls[0]);
+            if (firstOut.hostname) remarkHost = firstOut.host;
+        } catch {
+            // keep the pre-enhance values
+        }
+        const remark = count === 1
+            ? (firstParsed && firstParsed.remark
+                ? `✨ ${firstParsed.protocol.toUpperCase()} ${remarkHost} | enhanced`
+                : '✨ Enhanced')
+            : `✨ Enhanced ${count} URLs`;
+
+        echOutputRemark.textContent = remark;
+        echOutputUrl.textContent = enhancedUrls.join('\n\n');
+        echOutputSection.style.display = 'block';
+        echLastSource = 'url';
+        echOutputList = enhancedUrls;
+        echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // ===== ECH subscription input (link fetch or pasted contents, shared output) =====
+
+    function setEchSubError(text) {
+        echSubParsed.textContent = '';
+        const err = document.createElement('div');
+        err.className = 'error-msg';
+        err.textContent = '⚠️ ' + text;
+        echSubParsed.appendChild(err);
+    }
+
+    // Manual-fetch fallback for providers that block browser fetches (no CORS
+    // headers): an "Open link" button + 3 steps, mirroring the Subscription tab.
+    // Built with DOM APIs only (no innerHTML).
+    function setEchSubCorsGuide(linkUrl) {
+        const guide = document.createElement('div');
+        guide.className = 'sub-guide';
+        const title = document.createElement('div');
+        title.textContent = 'Get the content manually — 3 quick steps:';
+        const steps = document.createElement('ol');
+        const first = document.createElement('li');
+        first.textContent = 'Open your subscription link in a new tab: ';
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'btn-subtle';
+        openBtn.textContent = '↗ Open link';
+        openBtn.addEventListener('click', () => openSubLink(linkUrl));
+        first.appendChild(openBtn);
+        const second = document.createElement('li');
+        second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
+        const third = document.createElement('li');
+        third.textContent = 'Paste it into the subscription box above and press Fetch & Enhance Sub.';
+        steps.append(first, second, third);
+        guide.append(title, steps);
+        echSubParsed.appendChild(guide);
+    }
+
+    // Enables the Open-link button exactly when the field holds a link.
+    function syncEchOpenButton() {
+        btnEchOpenSub.disabled = subValidate(echSubInput.value.trim()) !== 'link';
+    }
+
+    function onEchSubInput() {
+        const raw = echSubInput.value.trim();
+        // A fetch is in flight — typing must not re-enable the button (the
+        // click would be swallowed by the busy guard in onEchSub anyway).
+        if (echSubBusy) {
+            btnEchSub.disabled = true;
+            return;
+        }
+        echSubCard.classList.remove('valid', 'invalid');
+        echSubRaw = [];
+
+        // Any edit invalidates the previous result, whichever input produced it.
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        echSubParsed.textContent = '';
+        echSubHint.style.color = '';
+        echOutputList = [];
+
+        if (!raw) {
+            btnEchSub.disabled = true;
+            btnEchOpenSub.disabled = true;
+            echSubHint.textContent = 'Paste a subscription link — or its contents — above to enable';
+            return;
+        }
+
+        const mode = subValidate(raw);
+        if (mode === 'link' || mode === 'content') {
+            echSubCard.classList.add('valid');
+            btnEchSub.disabled = false;
+            syncEchOpenButton();
+            echSubHint.textContent = mode === 'link'
+                ? 'Ready to fetch & enhance'
+                : 'Ready to enhance pasted contents';
+            echSubHint.style.color = '#4cdf86';
+        } else if (mode === 'proxy') {
+            echSubCard.classList.add('invalid');
+            btnEchSub.disabled = true;
+            btnEchOpenSub.disabled = true;
+            echSubHint.textContent = 'That looks like an HTTP proxy address, not a subscription';
+            setEchSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.');
+        } else {
+            echSubCard.classList.add('invalid');
+            btnEchSub.disabled = true;
+            btnEchOpenSub.disabled = true;
+            echSubHint.textContent = 'Unrecognized input — paste a subscription link or its contents';
+        }
+    }
+
+    function renderEchSubResults(configs, focus) {
+        let enhanced = [];
+        let skipped = 0;
+        let invalid = 0;
+        configs.forEach(line => {
+            // Raw base64 container line (no scheme): when it decodes to config
+            // lines, those twins are already separate entries below — skip it
+            // silently instead of a phantom skip/invalid report.
+            if (!SUB_SCHEME.test(line)) {
+                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+                if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
+            }
+            const p = parseProxyURLSingle(line);
+            if (!p || p.error) {
+                invalid++;
+                return;
+            }
+            if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
+                skipped++;
+                return;
+            }
+            const res = enhanceEchURL(line, { ignoreServer: true });
+            if (res && res.url) {
+                enhanced.push(res.url);
+            } else if (line.includes('://')) {
+                // The line parsed but could not be enhanced — unusable line.
+                invalid++;
+            }
+            // Else: raw base64 line whose decoded twin was already counted —
+            // ignored silently instead of a phantom skip/invalid report.
+        });
+
+        if (enhanced.length === 0) {
+            echOutputSection.style.display = 'none';
+            echOutputList = [];
+            echSubHint.textContent = configs.length
+                ? 'Found configs, but none were VLESS/Trojan with a usable URL'
+                : 'No proxy configs found in the input';
+            echSubHint.style.color = '#f0c040';
+            echSubCard.classList.remove('valid');
+            echSubCard.classList.add('invalid');
+            setEchSubError(configs.length
+                ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
+                : 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.');
+            return;
+        }
+
+        echSubParsed.textContent = '';
+        echSubCard.classList.remove('invalid');
+        echSubCard.classList.add('valid');
+
+        const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
+        if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
+        if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
+        echOutputRemark.textContent = parts.join(' · ');
+        echOutputUrl.textContent = enhanced.join('\n');
+        echOutputSection.style.display = 'block';
+        echLastSource = 'sub';
+        echOutputList = enhanced;
+        if (focus) echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        echSubHint.textContent = 'Done';
+        echSubHint.style.color = '#4cdf86';
+    }
+
+    // Re-enhance stored subscription configs when the ECH options change,
+    // without re-fetching. Only fires when the visible output came from the
+    // subscription input — never clobbers URL-input results.
+    let echSubRenderTimer = null;
+    function scheduleEchSubRender() {
+        if (echSubBusy || !echSubRaw.length || echLastSource !== 'sub') return;
+        clearTimeout(echSubRenderTimer);
+        echSubRenderTimer = setTimeout(() => {
+            echSubRenderTimer = null;
+            if (echSubBusy || !echSubRaw.length || echLastSource !== 'sub') return;
+            renderEchSubResults(echSubRaw, false);
+        }, 300);
+    }
+
+    async function onEchSub() {
+        const raw = echSubInput.value.trim();
+        if (!raw || echSubBusy) return;
+
+        const mode = subValidate(raw);
+        if (mode !== 'link' && mode !== 'content') {
+            onEchSubInput();
+            return;
+        }
+
+        // Pasted content: no fetch at all.
+        if (mode === 'content') {
+            echSubRaw = extractSubConfigs(raw);
+            renderEchSubResults(echSubRaw, true);
+            return;
+        }
+
+        echSubBusy = true;
+        btnEchSub.disabled = true;
+        btnEchOpenSub.disabled = true;
+        echSubHint.textContent = 'Fetching…';
+        echSubHint.style.color = '';
+        echSubParsed.textContent = '';
+        echSubCard.classList.remove('invalid');
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        echSubRaw = [];
+        echOutputList = [];
+
+        try {
+            const body = await fetchSubBody(raw, onEchSubProgress);
+            echSubBusy = false;
+            if (echSubProgressTimer) {
+                clearTimeout(echSubProgressTimer);
+                echSubProgressTimer = null;
+            }
+            btnEchSub.disabled = false;
+            // The field changed mid-fetch — drop the result, never render output
+            // under input it no longer belongs to.
+            if (echSubInput.value.trim() !== raw) {
+                echSubRaw = [];
+                onEchSubInput();
+                echSubHint.textContent = 'Input changed during the fetch — fetch again';
+                echSubHint.style.color = '#f0c040';
+                return;
+            }
+            echSubRaw = extractSubConfigs(body);
+            renderEchSubResults(echSubRaw, true);
+            syncEchOpenButton();
+        } catch (e) {
+            echSubBusy = false;
+            if (echSubProgressTimer) {
+                clearTimeout(echSubProgressTimer);
+                echSubProgressTimer = null;
+            }
+            btnEchSub.disabled = false;
+            if (echSubInput.value.trim() !== raw) {
+                echSubRaw = [];
+                onEchSubInput();
+                echSubHint.textContent = 'Input changed during the fetch — fetch again';
+                echSubHint.style.color = '#f0c040';
+                return;
+            }
+            echSubHint.textContent = 'Fetch failed';
+            echSubHint.style.color = '#f05050';
+            echSubCard.classList.remove('valid');
+            echSubCard.classList.add('invalid');
+            setEchSubError(subErrorText(e));
+            syncEchOpenButton();
+            if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setEchSubCorsGuide(raw);
+        }
+    }
+
+    // Accept a saved subscription file (.txt) dropped onto the ECH sub card.
+    // Everything stays local: FileReader never uploads anything.
+    function onEchSubDropError(text) {
+        echOutputSection.style.display = 'none';
+        echOutputUrl.textContent = '';
+        echOutputRemark.textContent = '';
+        // Re-validate whatever is actually in the field instead of assuming
+        // the input needs fixing — the field may still hold a valid link.
+        onEchSubInput();
+        setEchSubError(text);
+        echSubRaw = [];
+        echOutputList = [];
+    }
+    function onEchSubDragOver(e) {
+        e.preventDefault();
+        echSubCard.classList.add('dragover');
+    }
+    function onEchSubDragLeave(e) {
+        e.preventDefault();
+        // dragleave also fires when moving between children of the card —
+        // only clear the highlight when the pointer truly leaves it.
+        if (e.relatedTarget && echSubCard.contains(e.relatedTarget)) return;
+        echSubCard.classList.remove('dragover');
+    }
+    function onEchSubDrop(e) {
+        e.preventDefault();
+        echSubCard.classList.remove('dragover');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+        if (file.size > SUB_MAX_FILE_BYTES) {
+            onEchSubDropError('That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            echSubInput.value = String(reader.result || '');
+            onEchSubInput();
+            echSubInput.focus();
+        };
+        reader.onerror = () => onEchSubDropError('Could not read that file.');
+        reader.readAsText(file);
+    }
+
     // ===== Xray Outbound Builders =====
 
     function buildStreamSettings(params, isChain) {
@@ -1240,7 +1826,7 @@
                 cfg.host.split(',').forEach(h => bypassDomains.add(h.trim()));
             }
             if (cfg.ech) {
-                const echDomain = cfg.ech.split('+')[0];
+                const echDomain = getEchQueryServer(cfg.ech);
                 if (echDomain) bypassDomains.add(echDomain);
             }
         });
@@ -1646,7 +2232,7 @@
 
             // ECH — param format: "query_server_name+dns_server" e.g. "workers.dev+udp://8.8.8.8"
             if (params.ech) {
-                const echQueryServer = params.ech.split('+')[0];
+                const echQueryServer = getEchQueryServer(params.ech);
                 tls.record_fragment = false;
                 tls.ech = {
                     enabled: true,
@@ -1983,6 +2569,9 @@
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
+        // file:// / plain http have no async clipboard — a sync throw here
+        // would bypass .then() entirely, so bail out quietly instead.
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
         navigator.clipboard.writeText(text).then(() => {
             btn.classList.add('copied');
             btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
@@ -2633,6 +3222,13 @@
 
     function onCopySub(btn, text) {
         if (!text) return;
+        // file:// / plain http have no async clipboard — fail with guidance
+        // instead of an uncaught TypeError (sync throw, .catch can't see it).
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            subHint.textContent = 'Copy failed — select the output text and copy it manually';
+            subHint.style.color = '#f0c040';
+            return;
+        }
         navigator.clipboard.writeText(text).then(() => {
             btn.classList.add('copied');
             btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
@@ -2695,6 +3291,7 @@
         viewChain.style.display = viewName === 'chain' ? '' : 'none';
         viewEnhancer.style.display = viewName === 'enhancer' ? '' : 'none';
         viewSub.style.display = viewName === 'sub' ? '' : 'none';
+        viewEch.style.display = viewName === 'ech' ? '' : 'none';
 
         const optionsTarget = viewName === 'sub' ? subOptionsSlot : enhancerOptionsSlot;
         if (enhancerOptionsCard && optionsTarget) optionsTarget.appendChild(enhancerOptionsCard);
@@ -2721,13 +3318,15 @@
         }
     }
 
-    // Apply badge visibility for the initial view (enhancer is active by default)
-    switchMainTab('enhancer');
+    // Apply badge visibility for the initial view (ech is active by default)
+    switchMainTab('ech');
 
 
     function switchSubTab(subTabName) {
-        const subTabs = document.querySelectorAll('.sub-tab');
-        const subPanels = document.querySelectorAll('.sub-panel');
+        // Scoped to the sing-box output: the ECH view has its own sub-tabs
+        // with a dedicated switcher below.
+        const subTabs = document.querySelectorAll('#panel-singbox .sub-tab');
+        const subPanels = document.querySelectorAll('#panel-singbox .sub-panel');
 
         subTabs.forEach(t => {
             if (t.dataset.subtab === subTabName) {
@@ -2789,8 +3388,10 @@
     });
     tabSingbox.addEventListener('click', () => switchTab('singbox'));
 
-    // Sub-tab switching
-    document.querySelectorAll('.sub-tab').forEach(btn => {
+    // Sub-tab switching (sing-box output only — the ECH view has its own
+    // switcher; binding these globally would strip sing-box panels when an
+    // ECH sub-tab, which carries data-echsubtab instead, is clicked).
+    document.querySelectorAll('#panel-singbox .sub-tab').forEach(btn => {
         btn.addEventListener('click', () => {
             switchSubTab(btn.dataset.subtab);
         });
@@ -2886,6 +3487,51 @@
             }
         });
     }
+    // ECH presets (own tab) — selecting one overwrites the textarea, so
+    // anything typed by hand afterwards is preserved. 'none' only clears it.
+    // The textarea ships prefilled with the default (cf-udp) preset value.
+    const ECH_PRESETS = {
+        'cf-alidns': 'cloudflare-ech.com+https://dns.alidns.com/dns-query',
+        'cf-udp': 'cloudflare-ech.com+udp://1.1.1.1',
+        'esni-alidns': 'encryptedsni.com+https://dns.alidns.com/dns-query',
+        'esni-udp': 'encryptedsni.com+udp://1.1.1.1',
+        'sspcc-udp': 'ech.sspcccdn.xyz+udp://1.1.1.1',
+        'ipgs-udp': 'ip.gs+udp://8.8.8.8'
+    };
+    if (echPreset) {
+        echPreset.addEventListener('change', () => {
+            echText.value = ECH_PRESETS[echPreset.value] || '';
+        });
+    }
+    echInput.addEventListener('input', onEchInput);
+    echInput.addEventListener('paste', () => setTimeout(onEchInput, 50));
+    echClear.addEventListener('click', () => {
+        echInput.value = '';
+        onEchInput();
+    });
+    btnEchEnhance.addEventListener('click', onEchEnhance);
+    btnCopyEch.addEventListener('click', () => {
+        const text = echOutputUrl.textContent;
+        if (!text) return;
+        // file:// / plain http have no async clipboard — fail with guidance
+        // instead of an uncaught TypeError (sync throw, .catch can't see it).
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            echHint.textContent = 'Copy failed — select the output text and copy it manually';
+            echHint.style.color = '#f0c040';
+            return;
+        }
+        navigator.clipboard.writeText(text).then(() => {
+            btnCopyEch.classList.add('copied');
+            btnCopyEch.innerHTML = '<span class="copy-icon">✅</span> Copied!';
+            setTimeout(() => {
+                btnCopyEch.classList.remove('copied');
+                btnCopyEch.innerHTML = '<span class="copy-icon">📋</span> Copy';
+            }, 2000);
+        }).catch(() => {
+            echHint.textContent = 'Copy failed — select the output text and copy it manually';
+            echHint.style.color = '#f0c040';
+        });
+    });
     enhancerInput.addEventListener('input', onEnhancerInput);
     enhancerInput.addEventListener('paste', () => setTimeout(onEnhancerInput, 50));
     enhancerClear.addEventListener('click', () => {
@@ -2896,6 +3542,13 @@
     btnCopyEnhancer.addEventListener('click', () => {
         const text = enhancerOutputUrl.textContent;
         if (!text) return;
+        // file:// / plain http have no async clipboard — fail with guidance
+        // instead of an uncaught TypeError (sync throw, .catch can't see it).
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            enhanceHint.textContent = 'Copy failed — select the output text and copy it manually';
+            enhanceHint.style.color = '#f0c040';
+            return;
+        }
         navigator.clipboard.writeText(text).then(() => {
             btnCopyEnhancer.classList.add('copied');
             btnCopyEnhancer.innerHTML = '<span class="copy-icon">✅</span> Copied!';
@@ -2903,6 +3556,61 @@
                 btnCopyEnhancer.classList.remove('copied');
                 btnCopyEnhancer.innerHTML = '<span class="copy-icon">📋</span> Copy';
             }, 2000);
+        }).catch(() => {
+            enhanceHint.textContent = 'Copy failed — select the output text and copy it manually';
+            enhanceHint.style.color = '#f0c040';
         });
     });
+    echSubInput.addEventListener('input', onEchSubInput);
+    echSubInput.addEventListener('paste', () => setTimeout(onEchSubInput, 50));
+    echSubClear.addEventListener('click', () => {
+        echSubInput.value = '';
+        onEchSubInput();
+    });
+    btnEchSub.addEventListener('click', onEchSub);
+    btnEchOpenSub.addEventListener('click', () => {
+        const raw = echSubInput.value.trim();
+        if (subValidate(raw) === 'link') openSubLink(raw);
+    });
+    // ECH input-mode sub-tabs (scoped to #view-ech so the sing-box panels
+    // driven by the generic switchSubTab are untouched).
+    const echSubTabs = Array.from(document.querySelectorAll('#view-ech .sub-tab'));
+    const echSubPanels = {
+        url: document.getElementById('ech-subpanel-url'),
+        sub: document.getElementById('ech-subpanel-sub')
+    };
+    function switchEchSubTab(name) {
+        echSubTabs.forEach(t => t.classList.toggle('active', t.dataset.echsubtab === name));
+        Object.entries(echSubPanels).forEach(([key, panel]) => {
+            if (panel) panel.classList.toggle('active', key === name);
+        });
+    }
+    echSubTabs.forEach(tab => {
+        tab.addEventListener('click', () => switchEchSubTab(tab.dataset.echsubtab));
+    });
+    // Downloads export exactly what is displayed, so Copy and both files
+    // always agree (URL mode shows blank-line separation, sub mode single).
+    btnDownloadEch.addEventListener('click', () => {
+        if (!echOutputList.length) return;
+        downloadText('ech-enhanced-configs.txt', echOutputUrl.textContent + '\n');
+    });
+    btnDownloadEchB64.addEventListener('click', () => {
+        if (!echOutputList.length) return;
+        // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
+        // Chunked because a spread over a few hundred KB overflows the arg limit.
+        const bytes = new TextEncoder().encode(echOutputUrl.textContent);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        downloadText('ech-enhanced-configs-base64.txt', btoa(bin));
+    });
+    echSubCard.addEventListener('dragenter', onEchSubDragOver);
+    echSubCard.addEventListener('dragover', onEchSubDragOver);
+    echSubCard.addEventListener('dragleave', onEchSubDragLeave);
+    echSubCard.addEventListener('drop', onEchSubDrop);
+    // Re-run stored subscription configs when the ECH options change.
+    // (Server is ignored for bulk input, so it is not watched.)
+    [echFp, echPreset].forEach(el => el.addEventListener('change', scheduleEchSubRender));
+    [echText].forEach(el => el.addEventListener('input', scheduleEchSubRender));
 })();

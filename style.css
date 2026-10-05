@@ -608,8 +608,9 @@ body {
     color: var(--text-muted);
 }
 
-/* File-drop highlight on the subscription card. */
-#sub-card.dragover {
+/* File-drop highlight on the subscription cards. */
+#sub-card.dragover,
+#ech-sub-card.dragover {
     border-color: var(--accent-1);
     box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.25);
 }

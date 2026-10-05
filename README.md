@@ -2,15 +2,28 @@
 
 🌐 **[فارسی](README-fa.md)** | [English](README.md)
 
-A powerful, standalone web application with three tools:
+A powerful, standalone web application with four tools:
 
-1. **🧬 Fragment + Fingerprint** — enhance a **VLESS** or **Trojan** URL by injecting `cs` (cipher suites), `fm` (fragment mask) and `fp` (TLS fingerprint) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
-2. **🔗 Chain Builder** — chain two proxy configurations into a single **Xray** or **Sing-box** JSON configuration for enhanced connection stability and fixed IP masking.
-3. **📥 Subscription Import** — fetch a subscription link (or paste its contents) to decode it (plain or base64) and batch-enhance every **VLESS**/**Trojan** config inside, with copy/`.txt`/base64 export.
+1. **🛡️ ECH** (default tab) — enhance a **VLESS** or **Trojan** URL by injecting `fp` (TLS fingerprint, default `chrome`) and `ech` (ECH Config List) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
+2. **🧬 Fragment + Fingerprint** — enhance a **VLESS** or **Trojan** URL by injecting `cs` (cipher suites), `fm` (fragment mask) and `fp` (TLS fingerprint) parameters, plus a server (IP/domain) override — producing a link ready to import into your own client.
+3. **🔗 Chain Builder** — chain two proxy configurations into a single **Xray** or **Sing-box** JSON configuration for enhanced connection stability and fixed IP masking.
+4. **📥 Subscription Import** — fetch a subscription link (or paste its contents) to decode it (plain or base64) and batch-enhance every **VLESS**/**Trojan** config inside, with copy/`.txt`/base64 export.
 
 All processing happens in your browser. No data is sent to any server — fetching a subscription link contacts only the provider URL you entered, and pasted or dropped content never leaves your browser.
 
 ## 🚀 Features
+
+### 🛡️ ECH
+- **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `fp` and `ech` parameters added.
+- **Subscription Input**: Paste a subscription link to fetch it in your browser — or paste its contents (plain or base64) — to batch-enhance every VLESS/Trojan config inside with the same ECH options. The server override is ignored here (each config keeps its own address); changing the ECH options re-enhances the fetched configs without re-fetching.
+- **Server Override**: The server (IP/domain) field is auto-filled from the URL for a single config and is user-editable. With multiple configs the field stays empty and only applies to all configs if you type a custom value (supports IPv4, IPv6 and domains).
+- **Fingerprint**: Default `chrome`, with `unsafe`, `firefox`, `safari`, `random` and `none` options.
+- **ECH presets**: The `ECH Server` selector ships prefilled with `cloudflare-ech.com + Cloudflare udp://1.1.1.1`; alternatives include AliDNS DoH and other public ECH servers. The field stays editable for manual tweaks.
+- **Bare domains**: Typing just a domain (e.g. `cloudflare-ech.com`) auto-adds `+udp://8.8.8.8`; a base64 ECHConfigList passes through untouched.
+- **TLS-aware**: `ech` is only added when the config uses `tls` security. Clear the field to skip it.
+- **One-click Copy**: Copy the enhanced URL straight to the clipboard.
+- **Export**: Download as `.txt` (one per line) or base64 `.txt` (standard subscription body).
+- **Protocol Support**: **VLESS** and **Trojan**.
 
 ### 🧬 Fragment + Fingerprint
 - **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `cs`, `fm` and `fp` parameters added.
@@ -33,6 +46,7 @@ All processing happens in your browser. No data is sent to any server — fetchi
 - **Blocked Providers**: If the provider sends no CORS headers, the error shows 3 quick steps and an **Open link** button opens the URL in a new tab for copying.
 - **Paste or Drop**: A pasted config list/base64 blob — or a dropped saved `.txt` file — is enhanced with no fetch at all.
 - **Shared Options**: Uses the same `fp` / `cs` / `fm` values as the Fragment + Fingerprint tab; the server override is ignored (each config keeps its own address).
+- **No ECH here**: ECH is applied only in the **ECH** tab — subscription entries never get an `ech` parameter.
 - **Export**: Copy to clipboard, download as `.txt` (one per line) or base64 `.txt`.
 - **Protocol Support**: **VLESS** and **Trojan** are enhanced; other protocols found inside are counted as skipped.
 
@@ -55,6 +69,13 @@ The application generates a configuration that routes your traffic in this seque
 This ensures that your final outgoing IP address is that of the **Chain Proxy**, providing a consistent identity for the websites you visit.
 
 ## 🛠️ Usage
+
+### 🛡️ ECH
+1. Open the app — the **ECH** tab is active by default.
+2. Paste your **VLESS** or **Trojan** URL.
+3. Adjust the options if needed: server override (auto-filled from the URL), fingerprint (default `chrome`), ECH server preset or a manual value (bare domain auto-adds `+udp://8.8.8.8`).
+4. Click **"Enhance URL"** and copy the resulting link — import it into your client (Xray core, Sing-box 1.13.0+, or Clash 1.19.20+).
+5. For bulk configs, use the **Subscription Input** card instead: paste a link and click **"Fetch & Enhance Sub"** — or paste the subscription contents directly.
 
 ### 🧬 Fragment + Fingerprint
 1. Switch to the **Fragment + Fingerprint** tab.
@@ -84,9 +105,9 @@ This ensures that your final outgoing IP address is that of the **Chain Proxy**,
 
 | Protocol | URL Format | Notes |
 |----------|-----------|-------|
-| **VLESS** | `vless://uuid@server:port?params` | Supported by all three tools |
+| **VLESS** | `vless://uuid@server:port?params` | Supported by all four tools |
 | **VMess** | `vmess://base64-json` | Chain Builder only |
-| **Trojan** | `trojan://password@server:port?params` | Supported by all three tools |
+| **Trojan** | `trojan://password@server:port?params` | Supported by all four tools |
 | **Shadowsocks** | `ss://base64(method:pass)@server:port` | Chain Builder only — no transport (ws, grpc, etc.) and no TLS support |
 | **SOCKS** | `socks://user:pass@server:port` | Chain Builder only — must include username and password |
 | **HTTP** | `http://user:pass@server:port` | Chain Builder only — must include username and password |

@@ -42,7 +42,8 @@
 
         <!-- Main Tabs -->
         <nav class="main-tabs">
-            <button class="main-tab active" data-view="enhancer">🧬 Fragment + Fingerprint</button>
+            <button class="main-tab active" data-view="ech">🛡️ ECH</button>
+            <button class="main-tab" data-view="enhancer">🧬 Fragment + Fingerprint</button>
             <button class="main-tab" data-view="sub">📥 Subscription</button>
             <button class="main-tab" data-view="chain">🔗 Chain Builder</button>
         </nav>
@@ -366,8 +367,192 @@
         </footer>
         </div>
 
+        <!-- ===== View: ECH Enhancer (default) ===== -->
+        <div id="view-ech">
+            <!-- ECH input mode tabs -->
+            <div class="sub-tabs">
+                <button class="sub-tab active" data-echsubtab="url">
+                    🔗 URL
+                </button>
+                <button class="sub-tab" data-echsubtab="sub">
+                    📥 Subscription
+                </button>
+            </div>
+
+            <!-- Sub Panel: URL input -->
+            <div class="sub-panel active" id="ech-subpanel-url">
+            <!-- Input -->
+            <div class="config-card" id="ech-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">🛡️</span>
+                        <div>
+                            <h2>ECH Enhancer</h2>
+                            <p class="card-hint">Adds <code>fp</code> (TLS fingerprint) and <code>ech</code> (ECH Config List) to VLESS / Trojan URLs (supports single or multiple URLs)</p>
+                        </div>
+                    </div>
+                    <div class="card-header-right">
+                        <span class="protocol-tag" id="ech-protocol-tag">—</span>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <textarea id="ech-input" class="config-input"
+                        placeholder="Paste VLESS or Trojan URL(s) here (one per line)...&#10;e.g. vless://uuid@address:port?params#remark"
+                        spellcheck="false"></textarea>
+                    <button class="btn-clear" id="ech-clear" title="Clear">✕</button>
+                </div>
+                <div class="parsed-info" id="ech-parsed"></div>
+            </div>
+
+            <!-- Generate -->
+            <div class="generate-section">
+                <button class="btn-generate" id="btn-ech-enhance" disabled>
+                    <span class="btn-icon">✨</span>
+                    Enhance URL
+                </button>
+                <p class="generate-hint" id="ech-hint">Paste VLESS or Trojan URL(s) above to enable</p>
+            </div>
+            </div>
+
+            <!-- Sub Panel: Subscription input -->
+            <div class="sub-panel" id="ech-subpanel-sub">
+            <!-- Subscription input (same box decodes plain/base64, link or contents) -->
+            <div class="config-card" id="ech-sub-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="card-icon">📥</span>
+                        <div>
+                            <h2>Subscription Input</h2>
+                            <p class="card-hint">Paste a subscription link — or its contents — to batch-enhance every VLESS / Trojan config inside with the ECH options below. You can also drop a saved .txt file onto this card.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <textarea id="ech-sub-input" class="config-input sub-url-input" rows="2"
+                        placeholder="https://example.com/sub/your-token — or paste the subscription contents"
+                        spellcheck="false" autocomplete="off"></textarea>
+                    <button class="btn-clear" id="ech-sub-clear" title="Clear">✕</button>
+                </div>
+                <div class="parsed-info" id="ech-sub-parsed"></div>
+            </div>
+
+            <!-- Generate (subscription) -->
+            <div class="generate-section">
+                <button class="btn-generate" id="btn-ech-sub" disabled>
+                    <span class="btn-icon">⚡</span> Fetch &amp; Enhance Sub
+                </button>
+                <button class="btn-subtle btn-open-link" id="btn-ech-open-sub" disabled
+                    title="Open the subscription link in a new tab">
+                    <span>↗</span> Open link
+                </button>
+                <p class="generate-hint" id="ech-sub-hint">Paste a subscription link — or its contents — above to enable</p>
+            </div>
+            </div>
+
+            <!-- Options (own card, shared between the URL/Sub panels) -->
+            <div id="ech-options-slot">
+                <div class="settings-card" id="ech-options-card">
+                <h3 class="settings-title">⚙️ ECH Options</h3>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <label for="ech-server">Server (IP / Domain)</label>
+                        <input type="text" id="ech-server"
+                            placeholder="Auto-filled from URL — empty to keep original" spellcheck="false">
+                    </div>
+                    <div class="setting-item">
+                        <label for="ech-fp">Fingerprint (fp)</label>
+                        <select id="ech-fp">
+                            <option value="unsafe">unsafe</option>
+                            <option value="chrome" selected>chrome</option>
+                            <option value="firefox">firefox</option>
+                            <option value="safari">safari</option>
+                            <option value="random">random</option>
+                            <option value="none">none</option>
+                        </select>
+                    </div>
+                    <div class="setting-item setting-item-wide">
+                        <label for="ech-preset">ECH Server (preset)</label>
+                        <select id="ech-preset">
+                            <option value="none">none — leave ech empty</option>
+                            <option value="cf-alidns">cloudflare-ech.com + AliDNS DoH (recommended)</option>
+                            <option value="cf-udp" selected>cloudflare-ech.com + Cloudflare udp://1.1.1.1</option>
+                            <option value="esni-alidns">encryptedsni.com + AliDNS DoH</option>
+                            <option value="esni-udp">encryptedsni.com + udp://1.1.1.1</option>
+                            <option value="sspcc-udp">ech.sspcccdn.xyz + udp://1.1.1.1</option>
+                            <option value="ipgs-udp">ip.gs + udp://8.8.8.8</option>
+                        </select>
+                    </div>
+                    <div class="setting-item setting-item-wide">
+                        <label for="ech-text">ECH Config List (ech) — empty to skip</label>
+                        <textarea id="ech-text" class="setting-textarea" rows="2" spellcheck="false" placeholder="cloudflare-ech.com+https://dns.alidns.com/dns-query — a bare domain auto-adds +udp://8.8.8.8, or a base64 ECHConfigList">cloudflare-ech.com+udp://1.1.1.1</textarea>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <!-- Output -->
+            <div class="output-section" id="ech-output-section" style="display:none;">
+                <div class="output-header">
+                    <h3>📋 Enhanced URL(s)</h3>
+                    <div class="output-actions">
+                        <button class="btn-copy" id="btn-copy-ech" title="Copy to clipboard">
+                            <span class="copy-icon">📋</span> Copy
+                        </button>
+                        <button class="btn-download" id="btn-download-ech" title="Download as .txt (one config per line)">
+                            <span class="download-icon">💾</span> .txt
+                        </button>
+                        <button class="btn-download" id="btn-download-ech-b64"
+                            title="Download as base64 .txt (subscription format)">
+                            <span class="download-icon">🔐</span> base64 .txt
+                        </button>
+                    </div>
+                </div>
+                <div class="output-remark" id="ech-output-remark"></div>
+                <pre class="output-code enhancer-output-code"><code id="ech-output-url"></code></pre>
+            </div>
+
+            <details class="info-section">
+                <summary>ℹ️ How the ECH Enhancer Works</summary>
+                <div class="info-content">
+                    <p>Paste <strong>VLESS</strong> or <strong>Trojan</strong> URL(s) (one per line) and this tool adds:</p>
+                    <ul>
+                        <li><strong>fp</strong> — TLS fingerprint (default <code>chrome</code>, overrides the URL's own
+                            value).</li>
+                        <li><strong>ech</strong> — ECH Config List for Encrypted ClientHello. Use the
+                            <code>ECH Server</code> selector to pick a preset (default
+                            <code>cloudflare-ech.com + Cloudflare udp://1.1.1.1</code>); the field stays editable
+                            for manual tweaks. A bare domain (e.g. <code>cloudflare-ech.com</code>) auto-adds
+                            <code>+udp://8.8.8.8</code>; a base64 ECHConfigList is passed through untouched.</li>
+                        <li><strong>Server</strong> — IP/domain override, auto-filled from the pasted URL; empty to keep
+                            the original address.</li>
+                        <li><strong>Subscription Input</strong> — paste a subscription link to fetch it in your browser,
+                            or paste its contents (plain or base64) to batch-enhance every VLESS / Trojan config inside
+                            with the same ECH options below. The server override is ignored here — each config keeps its
+                            own address.</li>
+                        <li><strong>Output</strong> — <strong>Copy</strong> to clipboard, <strong>.txt</strong> download
+                            (one config per line), or <strong>base64 .txt</strong> download (standard subscription body).</li>
+                    </ul>
+                    <p><code>ech</code> is only added when the config uses <strong>tls</strong> security. Clear the field to skip it.</p>
+                    <p><strong>⚠️ TLS required:</strong> this tool only works with configs that have <strong>TLS</strong>
+                        enabled. Non-TLS configs are not supported and will not work.</p>
+                    <h4>Client Requirements</h4>
+                    <ul>
+                        <li><strong>Xray</strong> — any recent core (v2rayN, v2rayNG, Nekoray, etc.).</li>
+                        <li><strong>Sing-box</strong> — version 1.13.0 or higher; <strong>Clash</strong> — version 1.19.20 or higher.</li>
+                    </ul>
+                </div>
+            </details>
+
+            <footer class="footer">
+                <p>Project Repository: <a href="https://github.com/Hidden-Node/proxy-builder"
+                        target="_blank">Hidden-Node/proxy-builder</a></p>
+                <p>Based on <a href="https://github.com/patterniha/PattNG" target="_blank">PattNG</a> export-to-clipboard
+                    logic (fp injection)</p>
+            </footer>
+        </div>
+
         <!-- ===== View: Fragment + Fingerprint Enhancer ===== -->
-        <div id="view-enhancer">
+        <div id="view-enhancer" style="display:none;">
             <!-- Input -->
             <div class="config-card" id="enhancer-card">
                 <div class="card-header">
@@ -573,7 +758,7 @@
                             bodies.</li>
                         <li><strong>Enhance</strong> — uses the <code>fp</code> / <code>cs</code> / <code>fm</code>
                             values set in the <strong>Fragment + Fingerprint</strong> tab. Fragment presets apply to
-                            TLS configs only.</li>
+                            TLS configs only. ECH is handled in the <strong>ECH</strong> tab and is not applied here.</li>
                         <li><strong>Server override</strong> from the Enhancer tab is ignored here — a subscription
                             holds many servers, so each config keeps its own address.</li>
                     </ul>
