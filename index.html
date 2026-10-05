@@ -403,15 +403,6 @@
                 </div>
                 <div class="parsed-info" id="ech-parsed"></div>
             </div>
-
-            <!-- Generate -->
-            <div class="generate-section">
-                <button class="btn-generate" id="btn-ech-enhance" disabled>
-                    <span class="btn-icon">✨</span>
-                    Enhance URL
-                </button>
-                <p class="generate-hint" id="ech-hint">Paste VLESS or Trojan URL(s) above to enable</p>
-            </div>
             </div>
 
             <!-- Sub Panel: Subscription input -->
@@ -434,18 +425,6 @@
                     <button class="btn-clear" id="ech-sub-clear" title="Clear">✕</button>
                 </div>
                 <div class="parsed-info" id="ech-sub-parsed"></div>
-            </div>
-
-            <!-- Generate (subscription) -->
-            <div class="generate-section">
-                <button class="btn-generate" id="btn-ech-sub" disabled>
-                    <span class="btn-icon">⚡</span> Fetch &amp; Enhance Sub
-                </button>
-                <button class="btn-subtle btn-open-link" id="btn-ech-open-sub" disabled
-                    title="Open the subscription link in a new tab">
-                    <span>↗</span> Open link
-                </button>
-                <p class="generate-hint" id="ech-sub-hint">Paste a subscription link — or its contents — above to enable</p>
             </div>
             </div>
 
@@ -488,6 +467,25 @@
                     </div>
                 </div>
             </div>
+            </div>
+
+            <!-- Generate (below the shared options, like the Fragment + Fingerprint tab) -->
+            <div class="generate-section sub-panel active" id="ech-generate-url">
+                <button class="btn-generate" id="btn-ech-enhance" disabled>
+                    <span class="btn-icon">✨</span>
+                    Enhance URL
+                </button>
+                <p class="generate-hint" id="ech-hint">Paste VLESS or Trojan URL(s) above to enable</p>
+            </div>
+            <div class="generate-section sub-panel" id="ech-generate-sub">
+                <button class="btn-generate" id="btn-ech-sub" disabled>
+                    <span class="btn-icon">⚡</span> Fetch &amp; Enhance Sub
+                </button>
+                <button class="btn-subtle btn-open-link" id="btn-ech-open-sub" disabled
+                    title="Open the subscription link in a new tab">
+                    <span>↗</span> Open link
+                </button>
+                <p class="generate-hint" id="ech-sub-hint">Paste a subscription link — or its contents — above to enable</p>
             </div>
 
             <!-- Output -->

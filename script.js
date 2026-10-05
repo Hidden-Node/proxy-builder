@@ -3579,10 +3579,19 @@
         url: document.getElementById('ech-subpanel-url'),
         sub: document.getElementById('ech-subpanel-sub')
     };
+    // Generate buttons live below the shared options card (like the
+    // Fragment + Fingerprint tab), so they toggle with the panels.
+    const echGenerateSections = {
+        url: document.getElementById('ech-generate-url'),
+        sub: document.getElementById('ech-generate-sub')
+    };
     function switchEchSubTab(name) {
         echSubTabs.forEach(t => t.classList.toggle('active', t.dataset.echsubtab === name));
         Object.entries(echSubPanels).forEach(([key, panel]) => {
             if (panel) panel.classList.toggle('active', key === name);
+        });
+        Object.entries(echGenerateSections).forEach(([key, section]) => {
+            if (section) section.classList.toggle('active', key === name);
         });
     }
     echSubTabs.forEach(tab => {
