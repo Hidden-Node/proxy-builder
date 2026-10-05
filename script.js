@@ -3325,12 +3325,68 @@
             echText.value = ECH_PRESETS[echPreset.value] || '';
         });
     }
+    // ===== Shared .txt drop onto URL cards =====
+    // One helper for both URL cards: dropped text must equal pasted text, so
+    // there is no parsing here — it only sets the textarea value and calls
+    // the card's existing input handler (button/hint/parsed update through
+    // the normal path). Everything stays local: file.text() never uploads.
+    function dropTextFileOnto(e, card, textarea, onInput, hint) {
+        e.preventDefault();
+        card.classList.remove('dragover');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+        if (!/\.txt$/i.test(file.name || '')) {
+            hint.textContent = 'Only .txt files can be dropped here — paste the URLs instead.';
+            hint.style.color = '#f05050';
+            return;
+        }
+        file.text().then(text => {
+            textarea.value = text;
+            onInput();
+            textarea.focus();
+        }).catch(() => {
+            hint.textContent = 'Could not read that file.';
+            hint.style.color = '#f05050';
+        });
+    }
+    function onEnhancerDragOver(e) {
+        e.preventDefault();
+        enhancerCard.classList.add('dragover');
+    }
+    function onEnhancerDragLeave(e) {
+        e.preventDefault();
+        // dragleave also fires when moving between children of the card —
+        // only clear the highlight when the pointer truly leaves it.
+        if (e.relatedTarget && enhancerCard.contains(e.relatedTarget)) return;
+        enhancerCard.classList.remove('dragover');
+    }
+    function onEnhancerDrop(e) {
+        dropTextFileOnto(e, enhancerCard, enhancerInput, onEnhancerInput, enhanceHint);
+    }
+    function onEchDragOver(e) {
+        e.preventDefault();
+        echCard.classList.add('dragover');
+    }
+    function onEchDragLeave(e) {
+        e.preventDefault();
+        // dragleave also fires when moving between children of the card —
+        // only clear the highlight when the pointer truly leaves it.
+        if (e.relatedTarget && echCard.contains(e.relatedTarget)) return;
+        echCard.classList.remove('dragover');
+    }
+    function onEchDrop(e) {
+        dropTextFileOnto(e, echCard, echInput, onEchInput, echHint);
+    }
     echInput.addEventListener('input', onEchInput);
     echInput.addEventListener('paste', () => setTimeout(onEchInput, 50));
     echClear.addEventListener('click', () => {
         echInput.value = '';
         onEchInput();
     });
+    echCard.addEventListener('dragenter', onEchDragOver);
+    echCard.addEventListener('dragover', onEchDragOver);
+    echCard.addEventListener('dragleave', onEchDragLeave);
+    echCard.addEventListener('drop', onEchDrop);
     btnEchEnhance.addEventListener('click', onEchEnhance);
     btnCopyEch.addEventListener('click', () => {
         const text = echOutputUrl.textContent;
@@ -3360,6 +3416,10 @@
         enhancerInput.value = '';
         onEnhancerInput();
     });
+    enhancerCard.addEventListener('dragenter', onEnhancerDragOver);
+    enhancerCard.addEventListener('dragover', onEnhancerDragOver);
+    enhancerCard.addEventListener('dragleave', onEnhancerDragLeave);
+    enhancerCard.addEventListener('drop', onEnhancerDrop);
     btnEnhance.addEventListener('click', onEnhance);
     echSubInput.addEventListener('input', onEchSubInput);
     echSubInput.addEventListener('paste', () => setTimeout(onEchSubInput, 50));
