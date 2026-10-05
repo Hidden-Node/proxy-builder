@@ -3069,13 +3069,14 @@
         URL.revokeObjectURL(url);
     }
 
-    function onCopySub(btn, text) {
+    // Single copy-to-clipboard flow for the hinted tabs: async clipboard with a
+    // guidance fallback where it doesn't exist (file:// / plain http), plus
+    // the 2-second "Copied!" button morph.
+    function copyTextWithFeedback(btn, text, hintEl) {
         if (!text) return;
-        // file:// / plain http have no async clipboard — fail with guidance
-        // instead of an uncaught TypeError (sync throw, .catch can't see it).
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
-            subHint.textContent = 'Copy failed — select the output text and copy it manually';
-            subHint.style.color = '#f0c040';
+            hintEl.textContent = 'Copy failed — select the output text and copy it manually';
+            hintEl.style.color = '#f0c040';
             return;
         }
         navigator.clipboard.writeText(text).then(() => {
@@ -3086,8 +3087,8 @@
                 btn.innerHTML = '<span class="copy-icon">📋</span> Copy';
             }, 2000);
         }).catch(() => {
-            subHint.textContent = 'Copy failed — select the output text and copy it manually';
-            subHint.style.color = '#f0c040';
+            hintEl.textContent = 'Copy failed — select the output text and copy it manually';
+            hintEl.style.color = '#f0c040';
         });
     }
 
@@ -3108,7 +3109,7 @@
     // Re-run the enhancement when the shared options change (selects vs textareas).
     [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
     [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
-    btnCopySub.addEventListener('click', () => onCopySub(btnCopySub, subOutputUrl.textContent));
+    btnCopySub.addEventListener('click', () => copyTextWithFeedback(btnCopySub, subOutputUrl.textContent, subHint));
     btnDownloadSub.addEventListener('click', () => {
         if (!subResults.length) return;
         downloadText('enhanced-configs.txt', subOutputUrl.textContent + '\n');
@@ -3332,28 +3333,7 @@
         onEchInput();
     });
     btnEchEnhance.addEventListener('click', onEchEnhance);
-    btnCopyEch.addEventListener('click', () => {
-        const text = echOutputUrl.textContent;
-        if (!text) return;
-        // file:// / plain http have no async clipboard — fail with guidance
-        // instead of an uncaught TypeError (sync throw, .catch can't see it).
-        if (!navigator.clipboard || !navigator.clipboard.writeText) {
-            echHint.textContent = 'Copy failed — select the output text and copy it manually';
-            echHint.style.color = '#f0c040';
-            return;
-        }
-        navigator.clipboard.writeText(text).then(() => {
-            btnCopyEch.classList.add('copied');
-            btnCopyEch.innerHTML = '<span class="copy-icon">✅</span> Copied!';
-            setTimeout(() => {
-                btnCopyEch.classList.remove('copied');
-                btnCopyEch.innerHTML = '<span class="copy-icon">📋</span> Copy';
-            }, 2000);
-        }).catch(() => {
-            echHint.textContent = 'Copy failed — select the output text and copy it manually';
-            echHint.style.color = '#f0c040';
-        });
-    });
+    btnCopyEch.addEventListener('click', () => copyTextWithFeedback(btnCopyEch, echOutputUrl.textContent, echHint));
     enhancerInput.addEventListener('input', onEnhancerInput);
     enhancerInput.addEventListener('paste', () => setTimeout(onEnhancerInput, 50));
     enhancerClear.addEventListener('click', () => {
