@@ -3335,6 +3335,11 @@
         card.classList.remove('dragover');
         const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
+        if (file.size > SUB_MAX_FILE_BYTES) {
+            hint.textContent = 'That file is too large — drop a plain-text URL list (.txt), usually a few hundred KB at most.';
+            hint.style.color = '#f05050';
+            return;
+        }
         if (!/\.txt$/i.test(file.name || '')) {
             hint.textContent = 'Only .txt files can be dropped here — paste the URLs instead.';
             hint.style.color = '#f05050';
