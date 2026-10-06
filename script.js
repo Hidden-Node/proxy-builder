@@ -2244,7 +2244,7 @@
 
             container.innerHTML = rows.map(([label, value]) =>
                 `<div class="info-row">
-                    <span class="info-label">${label}</span>
+                    <span class="info-label">${escapeHtml(String(label))}</span>
                     <span class="info-value">${escapeHtml(String(value))}</span>
                 </div>`
             ).join('');
@@ -2272,7 +2272,7 @@
 
         container.innerHTML = rows.map(([label, value]) =>
             `<div class="info-row">
-                <span class="info-label">${label}</span>
+                <span class="info-label">${escapeHtml(String(label))}</span>
                 <span class="info-value">${escapeHtml(String(value))}</span>
             </div>`
         ).join('');
