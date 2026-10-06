@@ -3071,7 +3071,7 @@
 
     // Single copy-to-clipboard flow for the hinted tabs: async clipboard with a
     // guidance fallback where it doesn't exist (file:// / plain http), plus
-    // the 2-second "Copied!" button morph.
+    // the 2-second success morph.
     function copyTextWithFeedback(btn, text, hintEl) {
         if (!text) return;
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
