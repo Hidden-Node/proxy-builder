@@ -165,14 +165,26 @@ const FRAGMENT_PRESETS = {
 };
 // ECH presets (own tab) — selecting one overwrites the textarea, so
 // anything typed by hand afterwards is preserved. 'none' only clears it.
-// The textarea ships prefilled with the default (cf-udp) preset value.
+// The textarea ships prefilled with the default (ech-1) preset value.
 const ECH_PRESETS = {
-    'cf-alidns': 'cloudflare-ech.com+https://dns.alidns.com/dns-query',
-    'cf-udp': 'cloudflare-ech.com+udp://1.1.1.1',
-    'esni-alidns': 'encryptedsni.com+https://dns.alidns.com/dns-query',
-    'esni-udp': 'encryptedsni.com+udp://1.1.1.1',
-    'sspcc-udp': 'ech.sspcccdn.xyz+udp://1.1.1.1',
-    'ipgs-udp': 'ip.gs+udp://8.8.8.8'
+    'ech-1': 'cloudflare-ech.com+udp://1.1.1.1',
+    'ech-2': 'cloudflare-ech.com+udp://9.9.9.9',
+    'ech-3': 'cloudflare-ech.com+udp://208.67.222.222',
+    'ech-4': 'cloudflare-ech.com+udp://8.8.8.8',
+    'ech-5': 'cloudflare-ech.com+udp://1.0.0.1',
+    'ech-6': 'cloudflare-ech.com+udp://8.8.4.4',
+    'ech-7': 'cloudflare-ech.com+udp://149.112.112.112',
+    'ech-8': 'cloudflare-ech.com+udp://208.67.220.220',
+    'ech-9': 'cloudflare-ech.com+udp://76.76.19.19',
+    'ech-10': 'cloudflare-ech.com+udp://76.76.2.0',
+    'ech-11': 'cloudflare-ech.com+udp://94.140.14.14',
+    'ech-12': 'cloudflare-ech.com+udp://94.140.15.15',
+    'ech-13': 'cloudflare-ech.com+udp://64.6.64.6',
+    'ech-14': 'cloudflare-ech.com+udp://64.6.65.6',
+    'ech-15': 'cloudflare-ech.com+udp://45.90.28.0',
+    'ech-16': 'cloudflare-ech.com+udp://45.90.30.0',
+    'ech-17': 'cloudflare-ech.com+udp://185.228.168.9',
+    'ech-18': 'cloudflare-ech.com+udp://185.228.169.9'
 };
 
 // Node test harness: browsers ignore this block (`module` is undefined there).

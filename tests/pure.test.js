@@ -129,8 +129,27 @@ describe('subValidate', () => {
 });
 
 describe('presets', () => {
-    it('locks the cf-udp default', () => {
-        assert.equal(ECH_PRESETS['cf-udp'], 'cloudflare-ech.com+udp://1.1.1.1');
+    it('locks the ech-1 default', () => {
+        assert.equal(ECH_PRESETS['ech-1'], 'cloudflare-ech.com+udp://1.1.1.1');
+    });
+
+    it('locks the exact preset key set ech-1..ech-18', () => {
+        const expected = Array.from({ length: 18 }, (_, i) => 'ech-' + (i + 1));
+        assert.deepEqual(Object.keys(ECH_PRESETS), expected);
+    });
+
+    it('ships all 18 operator presets on cloudflare-ech.com over udp', () => {
+        const keys = Object.keys(ECH_PRESETS);
+        assert.equal(keys.length, 18);
+        for (const value of Object.values(ECH_PRESETS)) {
+            assert.match(value, /^cloudflare-ech\.com\+udp:\/\/[0-9.]+$/);
+        }
+    });
+
+    it('spot-checks preset values across the list', () => {
+        assert.equal(ECH_PRESETS['ech-2'], 'cloudflare-ech.com+udp://9.9.9.9');
+        assert.equal(ECH_PRESETS['ech-9'], 'cloudflare-ech.com+udp://76.76.19.19');
+        assert.equal(ECH_PRESETS['ech-18'], 'cloudflare-ech.com+udp://185.228.169.9');
     });
 
     it('ships parseable fragment presets', () => {
