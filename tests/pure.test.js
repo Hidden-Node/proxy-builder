@@ -133,10 +133,15 @@ describe('presets', () => {
         assert.equal(ECH_PRESETS['ech-1'], 'cloudflare-ech.com+udp://1.1.1.1');
     });
 
+    it('locks the exact preset key set ech-1..ech-18', () => {
+        const expected = Array.from({ length: 18 }, (_, i) => 'ech-' + (i + 1));
+        assert.deepEqual(Object.keys(ECH_PRESETS), expected);
+    });
+
     it('ships all 18 operator presets on cloudflare-ech.com over udp', () => {
         const keys = Object.keys(ECH_PRESETS);
         assert.equal(keys.length, 18);
-        for (const [key, value] of Object.entries(ECH_PRESETS)) {
+        for (const value of Object.values(ECH_PRESETS)) {
             assert.match(value, /^cloudflare-ech\.com\+udp:\/\/[0-9.]+$/);
         }
     });
