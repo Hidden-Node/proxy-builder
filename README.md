@@ -17,7 +17,7 @@ All processing happens in your browser. No data is sent to any server — fetchi
 - **Subscription Input**: Paste a subscription link to fetch it in your browser — or paste its contents (plain or base64) — to batch-enhance every VLESS/Trojan config inside with the same ECH options. The server override is ignored here (each config keeps its own address); changing the ECH options re-enhances the fetched configs without re-fetching.
 - **Server Override**: The server (IP/domain) field is auto-filled from the URL for a single config and is user-editable. With multiple configs the field stays empty and only applies to all configs if you type a custom value (supports IPv4, IPv6 and domains).
 - **Fingerprint**: Default `chrome`, with `unsafe`, `firefox`, `safari`, `random` and `none` options.
-- **ECH presets**: The `ECH Server` selector ships prefilled with `cloudflare-ech.com + Cloudflare udp://1.1.1.1`; alternatives include AliDNS DoH and other public ECH servers. The field stays editable for manual tweaks.
+- **ECH presets**: The `ECH Server` selector ships prefilled with `cloudflare-ech.com + udp://1.1.1.1 (recommended)` and offers 18 cloudflare-ech.com presets over public UDP resolvers (Cloudflare, Quad9, Google, OpenDNS, AdGuard, CleanBrowsing, Control D, NextDNS). The field stays editable for manual tweaks.
 - **Bare domains**: Typing just a domain (e.g. `cloudflare-ech.com`) auto-adds `+udp://8.8.8.8`; a base64 ECHConfigList passes through untouched.
 - **TLS-aware**: `ech` is only added when the config uses `tls` security. Clear the field to skip it.
 - **One-click Copy**: Copy the enhanced URL straight to the clipboard.
