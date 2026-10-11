@@ -5,7 +5,7 @@ const path = require('node:path');
 const pure = require('../pure.js');
 
 const {
-    safeAtob, safeDecode, extractLines,
+    safeAtob, encodeUtf8ToB64, safeDecode, extractLines,
     getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
     ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
     subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate,
@@ -41,6 +41,33 @@ describe('safeAtob', () => {
         assert.equal(safeAtob('!!!'), null);
         assert.equal(safeAtob('abcde'), null); // length % 4 === 1
         assert.equal(safeAtob(''), null);
+    });
+});
+
+describe('encodeUtf8ToB64', () => {
+    it('round-trips ASCII text via safeAtob', () => {
+        const text = 'hello world';
+        assert.equal(safeAtob(encodeUtf8ToB64(text)), text);
+    });
+
+    it('round-trips UTF-8 Persian text', () => {
+        const text = 'سلام دنیا';
+        assert.equal(safeAtob(encodeUtf8ToB64(text)), text);
+    });
+
+    it('encodes empty string to empty string', () => {
+        assert.equal(encodeUtf8ToB64(''), '');
+    });
+
+    it('exercises the multi-chunk path on a large input', () => {
+        const text = 'سلام'.repeat(5000);
+        assert.ok(Buffer.byteLength(text, 'utf8') > 32768);
+        assert.equal(safeAtob(encodeUtf8ToB64(text)), text);
+    });
+
+    it('emits no line breaks', () => {
+        const text = 'vless://a@b:1\ntrojan://c@d:2\n' + 'سلام'.repeat(5000);
+        assert.ok(!/[\r\n]/.test(encodeUtf8ToB64(text)));
     });
 });
 
