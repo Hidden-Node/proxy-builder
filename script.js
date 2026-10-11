@@ -1801,16 +1801,6 @@
         ).join('');
     }
 
-    function maskString(str) {
-        if (!str || str.length <= 8) return str;
-        return str.slice(0, 4) + '••••' + str.slice(-4);
-    }
-
-    function truncateStr(str, max) {
-        if (!str || str.length <= max) return str;
-        return str.slice(0, max) + '…';
-    }
-
     function escapeHtml(str) {
         const div = document.createElement('div');
         div.textContent = str;

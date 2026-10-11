@@ -212,10 +212,13 @@ function parseProxyURL(raw) {
 function parseVless(url) {
     try {
         const u = new URL(url);
+        if (!u.username) return { error: 'Failed to parse VLESS URL: missing userinfo' };
+        const uuid = u.username || safeDecode(url.split('://')[1].split('@')[0]);
+        if (!uuid) return { error: 'Failed to parse VLESS URL: missing userinfo' };
         const params = Object.fromEntries(u.searchParams);
         return {
             protocol: 'vless',
-            uuid: u.username || safeDecode(url.split('://')[1].split('@')[0]),
+            uuid: uuid,
             server: u.hostname,
             port: parseInt(u.port) || 443,
             remark: safeDecode(u.hash.slice(1) || ''),
@@ -258,7 +261,7 @@ function parseVmess(url) {
             server: config.add,
             port: parseInt(config.port) || 443,
             aid: parseInt(config.aid) || 0,
-            remark: config.ps || '',
+            remark: String(config.ps ?? ''),
             type: config.net || 'tcp',
             headerType: config.type || 'none',
             host: config.host || undefined,
@@ -279,10 +282,13 @@ function parseVmess(url) {
 function parseTrojan(url) {
     try {
         const u = new URL(url);
+        if (!u.username) return { error: 'Failed to parse Trojan URL: missing userinfo' };
+        const password = safeDecode(u.username || url.split('://')[1].split('@')[0]);
+        if (!password) return { error: 'Failed to parse Trojan URL: missing userinfo' };
         const params = Object.fromEntries(u.searchParams);
         return {
             protocol: 'trojan',
-            password: safeDecode(u.username || url.split('://')[1].split('@')[0]),
+            password: password,
             server: u.hostname,
             port: parseInt(u.port) || 443,
             remark: safeDecode(u.hash.slice(1) || ''),
@@ -449,6 +455,8 @@ function parseSocks(url) {
             hostPart = hostPart.slice(0, qIdx);
         }
         hostPart = hostPart.replace(/\/+$/, '');
+        // A stray path (socks://host/extra) is not part of the server name.
+        hostPart = hostPart.split('/')[0];
 
         if (hostPart.startsWith('[')) {
             const closeBracket = hostPart.indexOf(']');
@@ -585,6 +593,8 @@ function parseHttp(url) {
             hostPart = hostPart.slice(0, qIdx);
         }
         hostPart = hostPart.replace(/\/+$/, '');
+        // A stray path (socks://host/extra) is not part of the server name.
+        hostPart = hostPart.split('/')[0];
 
         if (hostPart.startsWith('[')) {
             const closeBracket = hostPart.indexOf(']');
@@ -636,6 +646,21 @@ function parseHttp(url) {
     }
 }
 
+// ===== Display Helpers =====
+// Coerce first: callers may pass through unknown JSON types (e.g. a numeric
+// VMess "ps"), and String() is idempotent for strings.
+function maskString(str) {
+    str = String(str ?? '');
+    if (!str || str.length <= 8) return str;
+    return str.slice(0, 4) + '••••' + str.slice(-4);
+}
+
+function truncateStr(str, max) {
+    str = String(str ?? '');
+    if (!str || str.length <= max) return str;
+    return str.slice(0, max) + '…';
+}
+
 // ===== Presets =====
 // Fragment presets — switching only overwrites the textarea on explicit
 // selector change, so manual edits are always preserved.
@@ -674,6 +699,7 @@ if (typeof module !== 'undefined' && module.exports) {
         getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
         ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
         parseProxyURLSingle, parseProxyURL, parseVless, parseVmess, parseTrojan, parseShadowsocks, parseSocks, parseHttp,
+        maskString, truncateStr,
         subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate
     };
 }
