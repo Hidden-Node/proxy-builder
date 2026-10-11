@@ -1544,7 +1544,7 @@
 
     // ===== Unified enhance pipeline (Plan 026) =====
     // Single fetch→extract→render→export flow parameterized by enhance fn + option
-    // handles. Parity policies (locked): countRule fragment's skipped++ on both;
+    // handles. Parity policies (locked): fragment's skipped++ on both (single hardcoded path — no per-tab rule);
     // busy guard (ECH freeze-button) on both; URL-input hides shared output (ECH)
     // on both; remark host post-override re-read (ECH) on both; empty-enhance red
     // hint (ECH wording) on both; failureCopy.noConfigs ECH wording on both;
@@ -1561,7 +1561,7 @@
             enhanceSingle, enhanceBulk,
             ids, urlJoin, subJoin, remarkJoiner,
             corsGuideStep3, exportNames, failureCopy,
-            countRule, showProtocolTag, busyGuardOnInput,
+            showProtocolTag, busyGuardOnInput,
             optionWatch, subCopy, copyHintEl, serverEl
         } = cfg;
         const {
@@ -1845,7 +1845,7 @@
                 if (res && res.url) {
                     enhanced.push(res.url);
                 } else {
-                    // countRule fragment's skipped++ (never relabels
+                    // fragment's skipped++ (never relabels
                     // parsed-but-unenhanceable as unparseable); ECH's
                     // invalid-if-scheme branch is deleted.
                     skipped++;
@@ -2137,7 +2137,6 @@
         corsGuideStep3: 'Paste it into the subscription box above and press Fetch & Enhance Sub.',
         exportNames: { txt: 'ech-enhanced-configs.txt', b64: 'ech-enhanced-configs-base64.txt' },
         failureCopy: { noConfigs: 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.' },
-        countRule: 'skipped',
         showProtocolTag: false,
         busyGuardOnInput: true,
         optionWatch: [
@@ -2184,7 +2183,6 @@
         corsGuideStep3: 'Paste it into the box above and press Fetch & Enhance.',
         exportNames: { txt: 'enhanced-configs.txt', b64: 'enhanced-configs-base64.txt' },
         failureCopy: { noConfigs: 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.' },
-        countRule: 'skipped',
         showProtocolTag: true,
         busyGuardOnInput: true,
         optionWatch: [
