@@ -2013,7 +2013,6 @@
             subRaw = [];
             onTabSubInput();
             setTabSubError(text);
-            outputList = [];
         }
 
         function onTabDragOver(e) {
