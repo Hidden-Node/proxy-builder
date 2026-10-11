@@ -1407,7 +1407,12 @@
             // rely on the total-timeout backstop to end true stalls (worst case
             // for a stall here is the 5-minute total timeout, not the idle one).
             if (!res.body || typeof res.body.getReader !== 'function') {
-                if (total > SUB_MAX_FILE_BYTES) {
+                // Garbage/missing header parses to NaN (or 0 via the || '0'
+                // fallback); NaN comparisons are always false, so throw
+                // pre-read ONLY on a known over-budget size — otherwise fall
+                // through to buffering, where the post-decode byte check
+                // (textBytes) enforces the cap (plan 030).
+                if (Number.isFinite(total) && total > SUB_MAX_FILE_BYTES) {
                     throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
                 }
                 const keepAlive = setInterval(kick, Math.min(10000, SUB_IDLE_MS));
