@@ -1929,9 +1929,7 @@
 
     // Bodies can be several hundred KB and arrive slowly, so we abort on
     // silence rather than after a fixed total time.
-    const SUB_IDLE_MS = 30000;
-    // Backstop for a body that trickles forever without ever going silent.
-    const SUB_TOTAL_MS = 5 * 60 * 1000;
+    // SUB_IDLE_MS / SUB_TOTAL_MS live in pure.js (shared with subErrorText).
 
     let subResults = [];
     let subRawConfigs = [];
@@ -1942,55 +1940,7 @@
     let subProgressTimer = null;
     let subRenderTimer = null;
 
-    // Returns every proxy line found in a subscription body, whether it arrives
-    // as plain text, as one base64 blob, or as a mix of plain lines and
-    // per-line base64 blobs.
-    function extractSubConfigs(body) {
-        let text = (body || '').trim();
-        if (!text) return [];
-
-        const lines = extractLines(text);
-
-        // Plain text list that also carries per-line base64 blobs: keep every
-        // line, exactly as before, and append whatever the non-plain lines
-        // decode to. Inputs without any base64 line return byte-identical
-        // results to the old early-return.
-        if (lines.some(l => SUB_SCHEME.test(l))) {
-            const out = lines.slice();
-            const seen = new Set(out);
-            for (const line of lines) {
-                if (SUB_SCHEME.test(line)) continue;
-                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
-                if (!decoded) continue;
-                for (const dl of extractLines(decoded)) {
-                    if (SUB_SCHEME.test(dl) && !seen.has(dl)) {
-                        seen.add(dl);
-                        out.push(dl);
-                    }
-                }
-            }
-            return out;
-        }
-
-        // Base64 body: try the whole payload first (standard subscription format),
-        // then line by line for providers that send a base64 blob per config.
-        const whole = safeAtob(text.replace(/\s+/g, ''));
-        if (whole) {
-            const decodedLines = extractLines(whole);
-            if (decodedLines.some(l => SUB_SCHEME.test(l))) {
-                return decodedLines;
-            }
-        }
-
-        // Last resort: some providers base64 each config on its own line. Only
-        // decoded lines that actually hold a proxy scheme count — otherwise any
-        // base64-looking word (an HTML file, a comment) becomes a "config".
-        return extractLines(text)
-            .map(l => safeAtob(l.replace(/^\/\/.*$/, '').trim()))
-            .filter(Boolean)
-            .flatMap(extractLines)
-            .filter(l => SUB_SCHEME.test(l));
-    }
+    // extractSubConfigs() lives in pure.js (shared global scope).
 
     // Streams the response so a large body can arrive over a slow link without
     // hitting a fixed timeout; the connection is aborted after SUB_IDLE_MS of
@@ -2130,7 +2080,7 @@
     // Accept a saved subscription file (.txt) dropped onto the card. Everything
     // stays local: FileReader never uploads anything.
     const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
-    const SUB_TOO_LARGE_MSG = 'That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.';
+    // SUB_TOO_LARGE_MSG lives in pure.js (shared with subErrorText).
 
     // A drop error must not leave a previous output on screen either.
     function onSubDropError(text) {
@@ -2171,47 +2121,7 @@
         reader.readAsText(file);
     }
 
-    // Transport failures surface as TypeError in every browser, but the message
-    // text varies ('Failed to fetch', 'NetworkError', 'Load failed', or even
-    // empty), so match the name first and the text only as fallback.
-    function subIsBlockedError(e) {
-        const msg = (e && e.message) || String(e);
-        return (e && e.name === 'TypeError') || /Failed to fetch|NetworkError|Load failed/i.test(msg);
-    }
-
-    // Reports the fetch error honestly. A 4xx/5xx from the provider is a real
-    // answer, and the CORS case gets a message that points at the paste fallback.
-    function subErrorText(e) {
-        const msg = (e && e.message) || String(e);
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            return 'You appear to be offline — check your connection and try again.';
-        }
-        if (e && e.name === 'SubTotalTimeout') {
-            return 'The download took longer than ' + Math.round(SUB_TOTAL_MS / 60000) +
-                ' minutes without finishing — the provider is too slow. Retry, or paste the subscription contents into this box.';
-        }
-        if (e && e.name === 'AbortError') {
-            return 'The connection went silent for ' + Math.round(SUB_IDLE_MS / 1000) +
-                's — the provider is throttling or unreachable. Retry, or paste the subscription contents into this box.';
-        }
-        if (/^HTTP \d+$/.test(msg)) {
-            const code = Number(msg.slice(5));
-            return 'The server replied ' + code + '. ' +
-                (code === 401 || code === 403
-                    ? 'That looks like an expired or invalid subscription link.'
-                    : code === 404
-                        ? 'That subscription link does not exist.'
-                        : 'The subscription URL is wrong or the server is refusing it.');
-        }
-        if (subIsBlockedError(e)) {
-            return 'This provider blocks browser access (it sends no CORS headers), so the direct fetch ' +
-                'was refused. Open the link in a new tab and paste its contents into this box — that always works.';
-        }
-        if (e && e.name === 'SubTooLarge') {
-            return SUB_TOO_LARGE_MSG;
-        }
-        return 'Could not read the response (' + msg + ').';
-    }
+    // subIsBlockedError() / subErrorText() live in pure.js (shared global scope).
 
     // Verdicts that allow the Fetch button to run.
     function subCanRun(mode) {
