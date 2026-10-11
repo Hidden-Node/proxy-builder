@@ -39,6 +39,17 @@ function safeAtob(str) {
     }
 }
 
+// Standard subscription body: UTF-8 bytes -> base64, no line breaks.
+// Chunked because a spread over a few hundred KB overflows the arg limit.
+function encodeUtf8ToB64(text) {
+    const bytes = new TextEncoder().encode(text || '');
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(bin);
+}
+
 // Safe wrapper around decodeURIComponent: returns the raw string
 // instead of throwing on malformed percent-encoding.
 function safeDecode(str) {
@@ -695,7 +706,7 @@ const ECH_PRESETS = {
 // Node test harness: browsers ignore this block (`module` is undefined there).
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-        safeAtob, safeDecode, extractLines,
+        safeAtob, encodeUtf8ToB64, safeDecode, extractLines,
         getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
         ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
         parseProxyURLSingle, parseProxyURL, parseVless, parseVmess, parseTrojan, parseShadowsocks, parseSocks, parseHttp,
