@@ -952,6 +952,7 @@
                         }]
                     }]
                 };
+                if (params.flow) outbound.settings.vnext[0].users[0].flow = params.flow;
                 break;
 
             case 'vmess':
@@ -1832,10 +1833,14 @@
         if (hasSSH) {
             tabXray.classList.add('disabled');
             tabXray.title = 'SSH is not supported by Xray';
+            btnCopyXray.disabled = true;
+            btnDownloadXray.disabled = true;
             switchTab('singbox');
         } else {
             tabXray.classList.remove('disabled');
             tabXray.title = '';
+            btnCopyXray.disabled = false;
+            btnDownloadXray.disabled = false;
         }
 
         // Generate Xray config (skip if SSH is involved)
@@ -1879,38 +1884,30 @@
 
     function doCopy(btn, configGenerator) {
         if (!parsedConfig1 || !parsedConfig2) return;
+        // Defense in depth: block Xray output for SSH configs even if the
+        // buttons are enabled. NOTE: the function-identity check breaks if a
+        // later plan wraps generators — prefer an explicit isXray boolean
+        // parameter then. Safe for now: plan 016 passes values, not wrappers.
+        if (configGenerator === generateFullConfig && (parsedConfig1?.protocol === 'ssh' || parsedConfig2?.protocol === 'ssh')) return;
         const result = configGenerator(parsedConfig1, parsedConfig2);
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
-        // file:// / plain http have no async clipboard — a sync throw here
-        // would bypass .then() entirely, so bail out quietly instead.
-        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
-        navigator.clipboard.writeText(text).then(() => {
-            btn.classList.add('copied');
-            btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
-            setTimeout(() => {
-                btn.classList.remove('copied');
-                btn.innerHTML = '<span class="copy-icon">📋</span> Copy';
-            }, 2000);
-        });
+        copyTextWithFeedback(btn, text, generateHint);
     }
 
     function doDownload(configGenerator, prefix) {
         if (!parsedConfig1 || !parsedConfig2) return;
+        // Defense in depth: block Xray output for SSH configs even if the
+        // buttons are enabled. NOTE: the function-identity check breaks if a
+        // later plan wraps generators — prefer an explicit isXray boolean
+        // parameter then. Safe for now: plan 016 passes values, not wrappers.
+        if (configGenerator === generateFullConfig && (parsedConfig1?.protocol === 'ssh' || parsedConfig2?.protocol === 'ssh')) return;
         const result = configGenerator(parsedConfig1, parsedConfig2);
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
-        const blob = new Blob([text], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${prefix}-${parsedConfig1.protocol}-${parsedConfig2.protocol}-${parsedConfig2.server}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        downloadText(`${prefix}-${parsedConfig1.protocol}-${parsedConfig2.protocol}-${parsedConfig2.server}.json`, text, 'application/json');
     }
 
     // ===== Subscription Import =====
