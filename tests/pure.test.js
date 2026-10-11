@@ -1,5 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const pure = require('../pure.js');
 
 const {
@@ -407,5 +409,27 @@ describe('truncateStr and maskString', () => {
         assert.equal(truncateStr(12345, 3), '123…');
         assert.equal(maskString(123456789), '1234••••6789');
         assert.equal(truncateStr(null, 3), '');
+    });
+});
+
+describe('html consistency', () => {
+    // Anchored at __dirname, not process.cwd(): the bare '../index.html'
+    // form throws ENOENT when tests run from a different directory.
+    const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+    it('ships an <option> for every ECH preset key', () => {
+        for (const key of Object.keys(ECH_PRESETS)) {
+            assert.ok(html.includes('<option value="' + key + '"'), 'missing option for ' + key);
+        }
+    });
+
+    it('ships a protocol badge for every SUB_SCHEME entry with badge coverage', () => {
+        // 'socks' badge covers both socks and socks5; tg has no badge and
+        // http/ssh are chain-only with no SUB_SCHEME entry, so none of
+        // those are asserted here.
+        for (const scheme of ['vless', 'vmess', 'trojan', 'ss', 'socks', 'socks5']) {
+            const badge = scheme === 'socks5' ? 'socks' : scheme;
+            assert.ok(html.includes('data-protocol="' + badge + '"'), 'missing badge for ' + scheme);
+        }
     });
 });

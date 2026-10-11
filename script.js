@@ -59,10 +59,8 @@
     // Tab elements
     const tabXray = document.getElementById('tab-xray');
     const tabSingbox = document.getElementById('tab-singbox');
-    const tabSingboxClient = document.getElementById('tab-singbox-client');
     const panelXray = document.getElementById('panel-xray');
     const panelSingbox = document.getElementById('panel-singbox');
-    const panelSingboxClient = document.getElementById('panel-singbox-client');
 
     // Main tab elements
     const mainTabs = document.querySelectorAll('.main-tab');
