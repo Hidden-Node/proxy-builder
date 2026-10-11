@@ -156,6 +156,486 @@ function subValidate(v) {
     return subLooksLikeContent(v) ? 'content' : null;
 }
 
+
+// ===== Proxy Parsers =====
+// Moved from script.js: DOM-free URL parsers shared via classic <script> global scope.
+
+function parseProxyURLSingle(raw) {
+    const url = raw.trim();
+    if (!url) return null;
+
+    const lower = url.toLowerCase();
+    if (lower.startsWith('vless://')) return parseVless(url);
+    if (lower.startsWith('vmess://')) return parseVmess(url);
+    if (lower.startsWith('trojan://')) return parseTrojan(url);
+    if (lower.startsWith('ss://')) return parseShadowsocks(url);
+    // Note: socks4/socks4a are intentionally not routed here. Xray outbound
+    // only supports SOCKS5 and this app always emits version 5 for sing-box,
+    // so accepting socks4 input would silently misrepresent the protocol.
+    if (lower.startsWith('tg://socks') || lower.startsWith('tg://socks5') || lower.startsWith('https://t.me/socks') || lower.startsWith('http://t.me/socks') || lower.startsWith('socks://') || lower.startsWith('socks5://')) return parseSocks(url);
+    if (lower.startsWith('http://') || lower.startsWith('https://')) return parseHttp(url);
+
+    try {
+        const decoded = safeAtob(url);
+        if (decoded) {
+            if (decoded.includes('"add"')) {
+                return parseVmess('vmess://' + url);
+            }
+            const decodedLower = decoded.toLowerCase();
+            if (decodedLower.startsWith('vless://') || decodedLower.startsWith('vmess://') || decodedLower.startsWith('trojan://') || decodedLower.startsWith('ss://') || decodedLower.startsWith('socks://') || decodedLower.startsWith('socks5://') || decodedLower.startsWith('http://') || decodedLower.startsWith('https://') || decodedLower.startsWith('tg://')) {
+                return parseProxyURLSingle(decoded);
+            }
+            if (decoded.includes('@') && decoded.includes(':')) {
+                return parseSocks('socks5://' + decoded);
+            }
+        }
+    } catch { }
+
+    // Note: socks4/socks4a links fall through to this error on purpose.
+    // Only SOCKS5 is supported (Xray outbound is SOCKS5-only).
+    return { error: 'Unknown protocol. Supported: vless, vmess, trojan, ss, socks (socks5 only), http' };
+}
+
+function parseProxyURL(raw) {
+    const lines = extractLines(raw);
+    if (lines.length === 0) return null;
+    if (lines.length === 1) return parseProxyURLSingle(lines[0]);
+
+    const parsedList = lines.map(line => parseProxyURLSingle(line));
+    const validList = parsedList.filter(p => p && !p.error);
+    if (validList.length > 0) {
+        return validList;
+    }
+    return parsedList[0] || { error: 'Unknown protocol. Supported: vless, vmess, trojan, ss, socks (socks5 only), http' };
+}
+
+function parseVless(url) {
+    try {
+        const u = new URL(url);
+        const params = Object.fromEntries(u.searchParams);
+        return {
+            protocol: 'vless',
+            uuid: u.username || safeDecode(url.split('://')[1].split('@')[0]),
+            server: u.hostname,
+            port: parseInt(u.port) || 443,
+            remark: safeDecode(u.hash.slice(1) || ''),
+            type: params.type || 'tcp',
+            headerType: params.headerType || 'none',
+            host: params.host || undefined,
+            path: params.path || undefined,
+            serviceName: params.serviceName || undefined,
+            authority: params.authority || undefined,
+            mode: params.mode || undefined,
+            security: params.security || 'none',
+            sni: params.sni || undefined,
+            fp: params.fp || 'chrome',
+            alpn: params.alpn || undefined,
+            pbk: params.pbk || undefined,
+            sid: params.sid || undefined,
+            spx: params.spx || undefined,
+            flow: params.flow || undefined,
+            encryption: params.encryption || 'none',
+            // ECH support
+            ech: params.ech || undefined,
+            // Insecure support
+            allowInsecure: params.allowInsecure === '1' || params.allowInsecure === 'true' || params.insecure === '1' || params.insecure === 'true'
+        };
+    } catch (e) {
+        return { error: 'Failed to parse VLESS URL: ' + e.message };
+    }
+}
+
+function parseVmess(url) {
+    try {
+        // Case-insensitive scheme strip: the router already accepts VMESS://
+        const b64 = url.replace(/^vmess:\/\//i, '');
+        const decoded = safeAtob(b64);
+        if (!decoded) return { error: 'Failed to decode VMess base64' };
+        const config = JSON.parse(decoded);
+        return {
+            protocol: 'vmess',
+            uuid: config.id,
+            server: config.add,
+            port: parseInt(config.port) || 443,
+            aid: parseInt(config.aid) || 0,
+            remark: config.ps || '',
+            type: config.net || 'tcp',
+            headerType: config.type || 'none',
+            host: config.host || undefined,
+            path: config.path || undefined,
+            serviceName: config.path || undefined,
+            authority: config.authority || undefined,
+            security: config.tls || 'none',
+            sni: config.sni || undefined,
+            fp: config.fp || 'chrome',
+            alpn: config.alpn || undefined,
+            allowInsecure: config.tls === 'tls' && (config.allowInsecure === 1 || config.allowInsecure === true || config.insecure === 1 || config.insecure === true)
+        };
+    } catch (e) {
+        return { error: 'Failed to parse VMess URL: ' + e.message };
+    }
+}
+
+function parseTrojan(url) {
+    try {
+        const u = new URL(url);
+        const params = Object.fromEntries(u.searchParams);
+        return {
+            protocol: 'trojan',
+            password: safeDecode(u.username || url.split('://')[1].split('@')[0]),
+            server: u.hostname,
+            port: parseInt(u.port) || 443,
+            remark: safeDecode(u.hash.slice(1) || ''),
+            type: params.type || 'tcp',
+            headerType: params.headerType || 'none',
+            host: params.host || undefined,
+            path: params.path || undefined,
+            serviceName: params.serviceName || undefined,
+            authority: params.authority || undefined,
+            mode: params.mode || undefined,
+            security: params.security || 'tls',
+            sni: params.sni || undefined,
+            fp: params.fp || 'chrome',
+            alpn: params.alpn || undefined,
+            pbk: params.pbk || undefined,
+            sid: params.sid || undefined,
+            spx: params.spx || undefined,
+            ech: params.ech || undefined,
+            allowInsecure: params.allowInsecure === '1' || params.allowInsecure === 'true' || params.insecure === '1' || params.insecure === 'true'
+        };
+    } catch (e) {
+        return { error: 'Failed to parse Trojan URL: ' + e.message };
+    }
+}
+
+function parseShadowsocks(url) {
+    try {
+        // Case-insensitive scheme strip: the router already accepts SS://
+        let raw = url.replace(/^ss:\/\//i, '');
+        const hashIdx = raw.indexOf('#');
+        let remark = '';
+        if (hashIdx !== -1) {
+            remark = safeDecode(raw.slice(hashIdx + 1));
+            raw = raw.slice(0, hashIdx);
+        }
+
+        let method, password, server, port;
+
+        if (raw.includes('@')) {
+            const [userPart, hostPart] = raw.split('@');
+            const decoded = safeAtob(userPart) || userPart;
+            const colonIdx = decoded.indexOf(':');
+            method = decoded.slice(0, colonIdx);
+            password = decoded.slice(colonIdx + 1);
+            const hostMatch = hostPart.match(/^(.+):(\d+)/);
+            if (hostMatch) {
+                server = hostMatch[1];
+                port = parseInt(hostMatch[2]);
+            }
+        } else {
+            const decoded = safeAtob(raw);
+            if (!decoded) return { error: 'Failed to decode SS base64' };
+            const match = decoded.match(/^(.+?):(.+)@(.+):(\d+)/);
+            if (match) {
+                method = match[1];
+                password = match[2];
+                server = match[3];
+                port = parseInt(match[4]);
+            }
+        }
+
+        if (!server) return { error: 'Failed to parse Shadowsocks URL' };
+
+        return {
+            protocol: 'shadowsocks',
+            method: method,
+            password: password,
+            server: server,
+            port: port,
+            remark: remark
+        };
+    } catch (e) {
+        return { error: 'Failed to parse Shadowsocks URL: ' + e.message };
+    }
+}
+
+function parseSocks(url) {
+    try {
+        let target = url.trim();
+        let remark = '';
+        let user, pass, server, port;
+
+        const lower = target.toLowerCase();
+        if (lower.startsWith('tg://socks') || lower.startsWith('tg://socks5') || lower.startsWith('https://t.me/socks') || lower.startsWith('http://t.me/socks')) {
+            // Telegram share format carries plain SOCKS5 credentials as query params.
+            // The output is still a standard SOCKS outbound, so Xray/sing-box support it.
+            const u = new URL(/^tg:\/\//i.test(target) ? target.replace(/^tg:\/\/(socks5|socks)\?/i, 'http://localhost/?') : target);
+            server = u.searchParams.get('server') || u.searchParams.get('host') || u.searchParams.get('ip') || '';
+            port = parseInt(u.searchParams.get('port')) || 1080;
+            user = u.searchParams.get('user') || u.searchParams.get('username') || undefined;
+            pass = u.searchParams.get('pass') || u.searchParams.get('password') || undefined;
+            // The hash fragment needs decoding, but query params are already
+            // decoded by URLSearchParams, so decoding them again would throw
+            // on values like "100%".
+            const tgHash = u.hash.slice(1);
+            remark = tgHash ? safeDecode(tgHash) : (u.searchParams.get('remark') || '');
+
+            if (!server) return { error: 'Failed to parse Telegram SOCKS URL: missing server' };
+            return {
+                protocol: 'socks',
+                server: server,
+                port: port,
+                user: user || undefined,
+                pass: pass || undefined,
+                remark: remark
+            };
+        }
+
+        // Only socks:// and socks5:// are supported here. socks4/socks4a
+        // input is rejected by the router on purpose (see above).
+        let body = target.replace(/^(socks5:\/\/|socks:\/\/)/i, '');
+
+        const hashIdx = body.indexOf('#');
+        if (hashIdx !== -1) {
+            remark = safeDecode(body.slice(hashIdx + 1));
+            body = body.slice(0, hashIdx);
+        }
+
+        if (!body.includes('@')) {
+            const decodedBody = safeAtob(body);
+            if (decodedBody && (decodedBody.includes(':') || decodedBody.includes('@'))) {
+                if (!remark && decodedBody.includes('#')) {
+                    const dHashIdx = decodedBody.indexOf('#');
+                    remark = safeDecode(decodedBody.slice(dHashIdx + 1));
+                    body = decodedBody.slice(0, dHashIdx);
+                } else {
+                    body = decodedBody;
+                }
+            }
+        }
+
+        let userPart = '';
+        let hostPart = body;
+
+        if (body.includes('@')) {
+            const atIdx = body.lastIndexOf('@');
+            userPart = body.slice(0, atIdx);
+            hostPart = body.slice(atIdx + 1);
+        }
+
+        if (userPart) {
+            if (userPart.includes(':')) {
+                const colonIdx = userPart.indexOf(':');
+                user = safeDecode(userPart.slice(0, colonIdx));
+                pass = safeDecode(userPart.slice(colonIdx + 1));
+            } else {
+                const decodedUser = safeAtob(userPart);
+                if (decodedUser && decodedUser.includes(':')) {
+                    const colonIdx = decodedUser.indexOf(':');
+                    user = decodedUser.slice(0, colonIdx);
+                    pass = decodedUser.slice(colonIdx + 1);
+                } else {
+                    user = safeDecode(userPart);
+                }
+            }
+        }
+
+        let searchParams = null;
+        if (hostPart.includes('?')) {
+            const qIdx = hostPart.indexOf('?');
+            try {
+                searchParams = new URLSearchParams(hostPart.slice(qIdx + 1));
+            } catch { }
+            hostPart = hostPart.slice(0, qIdx);
+        }
+        hostPart = hostPart.replace(/\/+$/, '');
+
+        if (hostPart.startsWith('[')) {
+            const closeBracket = hostPart.indexOf(']');
+            if (closeBracket !== -1) {
+                server = hostPart.slice(1, closeBracket);
+                const portPart = hostPart.slice(closeBracket + 1);
+                if (portPart.startsWith(':')) {
+                    port = parseInt(portPart.slice(1)) || 1080;
+                } else {
+                    port = 1080;
+                }
+            } else {
+                server = hostPart;
+                port = 1080;
+            }
+        } else if (hostPart.includes(':')) {
+            const lastColon = hostPart.lastIndexOf(':');
+            server = hostPart.slice(0, lastColon);
+            port = parseInt(hostPart.slice(lastColon + 1)) || 1080;
+        } else {
+            server = hostPart;
+            port = 1080;
+        }
+
+        if (searchParams) {
+            if (!user && (searchParams.get('user') || searchParams.get('username'))) {
+                user = searchParams.get('user') || searchParams.get('username');
+            }
+            if (!pass && (searchParams.get('pass') || searchParams.get('password'))) {
+                pass = searchParams.get('pass') || searchParams.get('password');
+            }
+            if (!remark && searchParams.get('remark')) {
+                remark = searchParams.get('remark');
+            }
+        }
+
+        if (!server) return { error: 'Failed to parse SOCKS URL: missing server' };
+
+        return {
+            protocol: 'socks',
+            server: server,
+            port: port,
+            user: user || undefined,
+            pass: pass || undefined,
+            remark: remark
+        };
+    } catch (e) {
+        return { error: 'Failed to parse SOCKS URL: ' + e.message };
+    }
+}
+
+function parseHttp(url) {
+    try {
+        let target = url.trim();
+        let remark = '';
+        let user, pass, server, port;
+
+        const lower = target.toLowerCase();
+        if (lower.startsWith('tg://http') || lower.startsWith('https://t.me/http') || lower.startsWith('http://t.me/http')) {
+            const u = new URL(/^tg:\/\//i.test(target) ? target.replace(/^tg:\/\/http\?/i, 'http://localhost/?') : target);
+            server = u.searchParams.get('server') || u.searchParams.get('host') || u.searchParams.get('ip') || '';
+            port = parseInt(u.searchParams.get('port')) || 80;
+            user = u.searchParams.get('user') || u.searchParams.get('username') || undefined;
+            pass = u.searchParams.get('pass') || u.searchParams.get('password') || undefined;
+            // Same double-decode guard as in parseSocks: hash needs decoding,
+            // query params are already decoded by URLSearchParams.
+            const tgHash = u.hash.slice(1);
+            remark = tgHash ? safeDecode(tgHash) : (u.searchParams.get('remark') || '');
+
+            if (!server) return { error: 'Failed to parse HTTP URL: missing server' };
+            return {
+                protocol: 'http',
+                server: server,
+                port: port,
+                user: user || undefined,
+                pass: pass || undefined,
+                remark: remark
+            };
+        }
+
+        let body = target.replace(/^(https:\/\/|http:\/\/)/i, '');
+
+        const hashIdx = body.indexOf('#');
+        if (hashIdx !== -1) {
+            remark = safeDecode(body.slice(hashIdx + 1));
+            body = body.slice(0, hashIdx);
+        }
+
+        if (!body.includes('@')) {
+            const decodedBody = safeAtob(body);
+            if (decodedBody && (decodedBody.includes(':') || decodedBody.includes('@'))) {
+                if (!remark && decodedBody.includes('#')) {
+                    const dHashIdx = decodedBody.indexOf('#');
+                    remark = safeDecode(decodedBody.slice(dHashIdx + 1));
+                    body = decodedBody.slice(0, dHashIdx);
+                } else {
+                    body = decodedBody;
+                }
+            }
+        }
+
+        let userPart = '';
+        let hostPart = body;
+
+        if (body.includes('@')) {
+            const atIdx = body.lastIndexOf('@');
+            userPart = body.slice(0, atIdx);
+            hostPart = body.slice(atIdx + 1);
+        }
+
+        if (userPart) {
+            if (userPart.includes(':')) {
+                const colonIdx = userPart.indexOf(':');
+                user = safeDecode(userPart.slice(0, colonIdx));
+                pass = safeDecode(userPart.slice(colonIdx + 1));
+            } else {
+                const decodedUser = safeAtob(userPart);
+                if (decodedUser && decodedUser.includes(':')) {
+                    const colonIdx = decodedUser.indexOf(':');
+                    user = decodedUser.slice(0, colonIdx);
+                    pass = decodedUser.slice(colonIdx + 1);
+                } else {
+                    user = safeDecode(userPart);
+                }
+            }
+        }
+
+        let searchParams = null;
+        if (hostPart.includes('?')) {
+            const qIdx = hostPart.indexOf('?');
+            try {
+                searchParams = new URLSearchParams(hostPart.slice(qIdx + 1));
+            } catch { }
+            hostPart = hostPart.slice(0, qIdx);
+        }
+        hostPart = hostPart.replace(/\/+$/, '');
+
+        if (hostPart.startsWith('[')) {
+            const closeBracket = hostPart.indexOf(']');
+            if (closeBracket !== -1) {
+                server = hostPart.slice(1, closeBracket);
+                const portPart = hostPart.slice(closeBracket + 1);
+                if (portPart.startsWith(':')) {
+                    port = parseInt(portPart.slice(1)) || 80;
+                } else {
+                    port = 80;
+                }
+            } else {
+                server = hostPart;
+                port = 80;
+            }
+        } else if (hostPart.includes(':')) {
+            const lastColon = hostPart.lastIndexOf(':');
+            server = hostPart.slice(0, lastColon);
+            port = parseInt(hostPart.slice(lastColon + 1)) || 80;
+        } else {
+            server = hostPart;
+            port = 80;
+        }
+
+        if (searchParams) {
+            if (!user && (searchParams.get('user') || searchParams.get('username'))) {
+                user = searchParams.get('user') || searchParams.get('username');
+            }
+            if (!pass && (searchParams.get('pass') || searchParams.get('password'))) {
+                pass = searchParams.get('pass') || searchParams.get('password');
+            }
+            if (!remark && searchParams.get('remark')) {
+                remark = searchParams.get('remark');
+            }
+        }
+
+        if (!server) return { error: 'Failed to parse HTTP URL: missing server' };
+
+        return {
+            protocol: 'http',
+            server: server,
+            port: port,
+            user: user || undefined,
+            pass: pass || undefined,
+            remark: remark
+        };
+    } catch (e) {
+        return { error: 'Failed to parse HTTP URL: ' + e.message };
+    }
+}
+
 // ===== Presets =====
 // Fragment presets — switching only overwrites the textarea on explicit
 // selector change, so manual edits are always preserved.
@@ -193,6 +673,7 @@ if (typeof module !== 'undefined' && module.exports) {
         safeAtob, safeDecode, extractLines,
         getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
         ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
+        parseProxyURLSingle, parseProxyURL, parseVless, parseVmess, parseTrojan, parseShadowsocks, parseSocks, parseHttp,
         subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate
     };
 }
