@@ -3186,14 +3186,46 @@
     }
 
     // ===== Wire Events =====
-    config1Input.addEventListener('input', () =>
-        onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true));
-    config2Input.addEventListener('input', () =>
-        onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false));
-    config1Input.addEventListener('paste', () =>
-        setTimeout(() => onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true), 50));
-    config2Input.addEventListener('paste', () =>
-        setTimeout(() => onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false), 50));
+    // Debounced chain-config inputs (150 ms keeps typing snappy): every
+    // keystroke re-parses and rebuilds the parsed-info panel, so the timer
+    // coalesces bursts from large pastes — same shape as scheduleSubRender
+    // (which uses 300 ms for option changes). An emptied field runs
+    // synchronously so button-disable feedback never lags a clear and
+    // parsedConfig1/2 can't go stale if Generate is clicked mid-delay.
+    // Paste shares this scheduler: paste fires both paste and input, and one
+    // timer means one parse instead of two.
+    let config1InputTimer = null;
+    function scheduleConfig1Input() {
+        if (!config1Input.value.trim()) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+            return;
+        }
+        clearTimeout(config1InputTimer);
+        config1InputTimer = setTimeout(() => {
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }, 150);
+    }
+    let config2InputTimer = null;
+    function scheduleConfig2Input() {
+        if (!config2Input.value.trim()) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+            return;
+        }
+        clearTimeout(config2InputTimer);
+        config2InputTimer = setTimeout(() => {
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }, 150);
+    }
+    config1Input.addEventListener('input', scheduleConfig1Input);
+    config2Input.addEventListener('input', scheduleConfig2Input);
+    config1Input.addEventListener('paste', scheduleConfig1Input);
+    config2Input.addEventListener('paste', scheduleConfig2Input);
 
     clear1.addEventListener('click', () => {
         config1Input.value = '';
@@ -3383,8 +3415,28 @@
     function onEchDrop(e) {
         dropTextFileOnto(e, echCard, echInput, onEchInput, echHint);
     }
-    echInput.addEventListener('input', onEchInput);
-    echInput.addEventListener('paste', () => setTimeout(onEchInput, 50));
+    // Debounced ECH URL input (150 ms keeps typing snappy): every keystroke
+    // re-parses every line and rebuilds the parsed-info panel, so the timer
+    // coalesces bursts from large pastes — same shape as scheduleSubRender.
+    // An emptied field runs synchronously so button-disable/output-hide
+    // feedback never lags a clear. Paste shares this scheduler: paste fires
+    // both paste and input, and one timer means one parse instead of two.
+    let echInputTimer = null;
+    function scheduleEchInput() {
+        if (!echInput.value.trim()) {
+            clearTimeout(echInputTimer);
+            echInputTimer = null;
+            onEchInput();
+            return;
+        }
+        clearTimeout(echInputTimer);
+        echInputTimer = setTimeout(() => {
+            echInputTimer = null;
+            onEchInput();
+        }, 150);
+    }
+    echInput.addEventListener('input', scheduleEchInput);
+    echInput.addEventListener('paste', scheduleEchInput);
     echClear.addEventListener('click', () => {
         echInput.value = '';
         onEchInput();
@@ -3395,8 +3447,29 @@
     echCard.addEventListener('drop', onEchDrop);
     btnEchEnhance.addEventListener('click', onEchEnhance);
     btnCopyEch.addEventListener('click', () => copyTextWithFeedback(btnCopyEch, echOutputUrl.textContent, echHint));
-    enhancerInput.addEventListener('input', onEnhancerInput);
-    enhancerInput.addEventListener('paste', () => setTimeout(onEnhancerInput, 50));
+    // Debounced enhancer URL input (150 ms keeps typing snappy): every
+    // keystroke re-parses every line and rebuilds the parsed-info panel, so
+    // the timer coalesces bursts from large pastes — same shape as
+    // scheduleSubRender. An emptied field runs synchronously so
+    // button-disable feedback never lags a clear. Paste shares this
+    // scheduler: paste fires both paste and input, and one timer means one
+    // parse instead of two.
+    let enhancerInputTimer = null;
+    function scheduleEnhancerInput() {
+        if (!enhancerInput.value.trim()) {
+            clearTimeout(enhancerInputTimer);
+            enhancerInputTimer = null;
+            onEnhancerInput();
+            return;
+        }
+        clearTimeout(enhancerInputTimer);
+        enhancerInputTimer = setTimeout(() => {
+            enhancerInputTimer = null;
+            onEnhancerInput();
+        }, 150);
+    }
+    enhancerInput.addEventListener('input', scheduleEnhancerInput);
+    enhancerInput.addEventListener('paste', scheduleEnhancerInput);
     enhancerClear.addEventListener('click', () => {
         enhancerInput.value = '';
         onEnhancerInput();
