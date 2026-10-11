@@ -150,134 +150,9 @@
         });
     }
 
-    function onEnhancerInput() {
-        subRawConfigs = [];
-        subLastSource = '';
-        const val = enhancerInput.value.trim();
-        const lines = extractLines(val);
-        let parsedList = [];
-        let unsupportedCount = 0;
-        let invalidCount = 0;
-
-        if (lines.length > 0) {
-            lines.forEach(line => {
-                const p = parseProxyURLSingle(line);
-                if (p && !p.error) {
-                    if (p.protocol === 'vless' || p.protocol === 'trojan') {
-                        parsedList.push(p);
-                    } else {
-                        unsupportedCount++;
-                    }
-                } else {
-                    invalidCount++;
-                }
-            });
-        }
-
-        // Auto-fill the server field from the URL — only for a single config.
-        // With multiple configs, auto-filling from the first URL would silently
-        // override every config's server with the first one's. A user-typed
-        // custom value is kept: it acts as a deliberate override for all configs.
-        if (parsedList.length === 1) {
-            const firstServer = parsedList[0].server || '';
-            const current = enhancerServer.value.trim();
-            if (!current || current === lastAutoServer || current === firstServer) {
-                enhancerServer.value = firstServer;
-                lastAutoServer = firstServer;
-            }
-        } else if (parsedList.length > 1) {
-            const current = enhancerServer.value.trim();
-            if (!current || current === lastAutoServer) {
-                enhancerServer.value = '';
-                lastAutoServer = '';
-            }
-        } else if (!enhancerServer.value.trim()) {
-            lastAutoServer = '';
-        }
-
-        if (lines.length > 0) {
-            if (parsedList.length > 0) {
-                renderParsedInfo(parsedList.length === 1 ? parsedList[0] : parsedList, enhancerParsed);
-                const protocols = Array.from(new Set(parsedList.map(p => p.protocol)));
-                if (protocols.length === 1) {
-                    updateProtocolTag(enhancerProtocolTag, parsedList[0]);
-                } else {
-                    enhancerProtocolTag.textContent = 'MULTI';
-                    enhancerProtocolTag.classList.add('active');
-                    enhancerProtocolTag.style.color = '#7c5cff';
-                    enhancerProtocolTag.style.borderColor = '#7c5cff4d';
-                    enhancerProtocolTag.style.background = '#7c5cff1a';
-                }
-            } else {
-                renderParsedInfo({
-                    error: unsupportedCount > 0
-                        ? 'Only VLESS and Trojan URLs are supported'
-                        : 'Failed to parse URL'
-                }, enhancerParsed);
-                updateProtocolTag(enhancerProtocolTag, null);
-            }
-        } else {
-            renderParsedInfo(null, enhancerParsed);
-            updateProtocolTag(enhancerProtocolTag, null);
-        }
-
-        enhancerCard.classList.remove('valid', 'invalid');
-        if (lines.length > 0 && parsedList.length > 0) {
-            enhancerCard.classList.add('valid');
-        } else if (lines.length > 0) {
-            enhancerCard.classList.add('invalid');
-        }
-
-        const count = parsedList.length;
-        btnEnhance.disabled = count === 0;
-        btnEnhance.innerHTML = `<span class="btn-icon">✨</span> Enhance ${count > 1 ? count + ' URLs' : 'URL'}`;
-        enhanceHint.textContent = count > 0
-            ? `Ready to enhance ${count} URL${count > 1 ? 's' : ''}!`
-            : 'Paste VLESS or Trojan URL(s) above to enable';
-        enhanceHint.style.color = count > 0 ? '#4cdf86' : '';
-    }
-
-    function onEnhance() {
-        const val = enhancerInput.value.trim();
-        const lines = extractLines(val);
-        if (lines.length === 0) {
-            subOutputSection.style.display = 'none';
-            return;
-        }
-
-        const enhancedUrls = [];
-        lines.forEach(line => {
-            const p = parseProxyURLSingle(line);
-            if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
-                const res = enhanceURL(line);
-                if (res && res.url) {
-                    enhancedUrls.push(res.url);
-                }
-            }
-        });
-
-        if (enhancedUrls.length === 0) {
-            subOutputSection.style.display = 'none';
-            return;
-        }
-
-        const count = enhancedUrls.length;
-        const firstParsed = parseProxyURLSingle(lines[0]);
-        const remark = count === 1
-            ? (firstParsed && firstParsed.remark
-                ? `✨ ${firstParsed.protocol.toUpperCase()} ${firstParsed.server}:${firstParsed.port} | enhanced`
-                : '✨ Enhanced')
-            : `✨ Enhanced ${count} URLs`;
-
-        // Shared output (same section the Subscription mode renders into):
-        // URL mode keeps blank-line separation; downloads export this text as-is.
-        subResults = enhancedUrls;
-        subOutputRemark.textContent = remark;
-        subOutputUrl.textContent = enhancedUrls.join('\n\n');
-        subOutputSection.style.display = 'block';
-        subLastSource = 'url';
-        subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    // Fragment URL-input/enhance originals removed (026): the fragTab
+    // createEnhanceTab instance below owns this tab now (IDs, filenames,
+    // option controls kept).
 
     // ===== ECH Enhancer (own tab — fp + ech only) =====
 
@@ -1500,15 +1375,7 @@
     // silence rather than after a fixed total time.
     // SUB_IDLE_MS / SUB_TOTAL_MS live in pure.js (shared with subErrorText).
 
-    let subResults = [];
-    let subRawConfigs = [];
-    let subLastSource = '';
-    let subMode = 'link';
-    let subBusy = false;
-    // Two timers, not one: the progress throttle and the option debounce must
-    // not cancel each other.
-    let subProgressTimer = null;
-    let subRenderTimer = null;
+    // Fragment per-tab state lives in its createEnhanceTab instance (026); globals removed.
 
     // extractSubConfigs() lives in pure.js (shared global scope).
 
@@ -1601,13 +1468,7 @@
         return await fetchTextWithProgress(url, onProgress);
     }
 
-    function setSubError(text) {
-        subParsed.textContent = '';
-        const err = document.createElement('div');
-        err.className = 'error-msg';
-        err.textContent = '⚠️ ' + text;
-        subParsed.appendChild(err);
-    }
+    // setSubError removed (026): closure setTabSubError in the fragTab controller.
 
     // Opens a subscription link for manual copying. The URL always comes from
     // the user's own paste (validated as a link before any call site runs),
@@ -1616,80 +1477,16 @@
         window.open(url, '_blank', 'noopener');
     }
 
-    // Enables the Open-link button exactly when the field holds a link.
-    function syncOpenButton() {
-        btnOpenSub.disabled = subValidate(subUrl.value.trim()) !== 'link';
-    }
+    // syncOpenButton removed (026): closure syncTabOpenButton in the fragTab controller.
 
-    // Step-by-step fallback shown when the provider blocks browser fetches.
-    // Built with DOM APIs only (no innerHTML): every string here is static,
-    // the only variable part is the link passed to window.open on click.
-    function setSubCorsGuide(linkUrl) {
-        const guide = document.createElement('div');
-        guide.className = 'sub-guide';
-        const title = document.createElement('div');
-        title.textContent = 'Get the content manually — 3 quick steps:';
-        const steps = document.createElement('ol');
-        const first = document.createElement('li');
-        first.textContent = 'Open your subscription link in a new tab: ';
-        const openBtn = document.createElement('button');
-        openBtn.type = 'button';
-        openBtn.className = 'btn-subtle';
-        openBtn.textContent = '↗ Open link';
-        openBtn.addEventListener('click', () => openSubLink(linkUrl));
-        first.appendChild(openBtn);
-        const second = document.createElement('li');
-        second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
-        const third = document.createElement('li');
-        third.textContent = 'Paste it into the box above and press Fetch & Enhance.';
-        steps.append(first, second, third);
-        guide.append(title, steps);
-        subParsed.appendChild(guide);
-    }
+    // setSubCorsGuide removed (026): closure setTabCorsGuide in the fragTab controller.
 
     // Accept a saved subscription file (.txt) dropped onto the card. Everything
     // stays local: FileReader never uploads anything.
     const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
     // SUB_TOO_LARGE_MSG lives in pure.js (shared with subErrorText).
 
-    // A drop error must not leave a previous output on screen either.
-    function onSubDropError(text) {
-        setSubError(text);
-        subOutputSection.style.display = 'none';
-        subOutputUrl.textContent = '';
-        subOutputRemark.textContent = '';
-        subResults = [];
-        subRawConfigs = [];
-    }
-    function onSubDragOver(e) {
-        e.preventDefault();
-        subCard.classList.add('dragover');
-    }
-    function onSubDragLeave(e) {
-        e.preventDefault();
-        // dragleave also fires when moving between children of the card —
-        // only clear the highlight when the pointer truly leaves it.
-        if (e.relatedTarget && subCard.contains(e.relatedTarget)) return;
-        subCard.classList.remove('dragover');
-    }
-    function onSubDrop(e) {
-        e.preventDefault();
-        subCard.classList.remove('dragover');
-        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (!file) return;
-        if (file.size > SUB_MAX_FILE_BYTES) {
-            onSubDropError(SUB_TOO_LARGE_MSG);
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            subUrl.value = String(reader.result || '');
-            onSubInput();
-            subUrl.focus();
-        };
-        reader.onerror = () => onSubDropError('Could not read that file.');
-        reader.readAsText(file);
-    }
+    // Fragment drop handlers removed (026): closures in the fragTab controller.
 
     // subIsBlockedError() / subErrorText() live in pure.js (shared global scope).
 
@@ -1698,272 +1495,17 @@
         return mode === 'link' || mode === 'content';
     }
 
-    function subShowInfo(label, value) {
-        subParsed.textContent = '';
-        const row = document.createElement('div');
-        row.className = 'info-row';
-        const key = document.createElement('span');
-        key.className = 'info-label';
-        key.textContent = label;
-        const val = document.createElement('span');
-        val.className = 'info-value';
-        val.textContent = value;
-        row.append(key, val);
-        subParsed.appendChild(row);
-    }
+    // subShowInfo removed (026): closure showTabInfo in the fragTab controller.
 
-    function onSubInput() {
-        const raw = subUrl.value.trim();
-        subCard.classList.remove('valid', 'invalid');
-        subProtocolTag.classList.remove('active');
-        subProtocolTag.textContent = '—';
-        subRawConfigs = [];
-        subLastSource = '';
+    // onSubInput removed (026): closure onTabSubInput in the fragTab controller
+    // (busy guard added, invalid card class added, subMode cache dropped).
 
-        // Any edit invalidates the previous result: leaving a 65-line output and
-        // its Copy/Download buttons under a new error message is misleading.
-        subOutputSection.style.display = 'none';
-        subOutputUrl.textContent = '';
-        subOutputRemark.textContent = '';
-        subResults = [];
-        subParsed.textContent = '';
-        subHint.style.color = '';
-        btnOpenSub.disabled = true;
+    // renderSubResults removed (026): closure renderTabResults in the fragTab
+    // controller (count rule unchanged — fragment's skipped++ was adopted).
 
-        if (!raw) {
-            btnSub.disabled = true;
-            subHint.textContent = 'Paste a subscription link — or its contents — to enable';
-            return;
-        }
-
-        subMode = subValidate(raw);
-        if (subMode === 'link') {
-            const u = new URL(raw);
-            subCard.classList.add('valid');
-            subProtocolTag.textContent = u.protocol.replace(':', '').toUpperCase() || 'HTTP';
-            subProtocolTag.classList.add('active');
-            subShowInfo('Host', u.hostname);
-            btnSub.disabled = false;
-            btnOpenSub.disabled = false;
-            subHint.textContent = 'Ready to fetch and enhance';
-            subHint.style.color = '#4cdf86';
-            return;
-        }
-
-        if (subMode === 'content') {
-            subCard.classList.add('valid');
-            subProtocolTag.textContent = 'CONTENT';
-            subProtocolTag.classList.add('active');
-            subShowInfo('Mode', 'Pasted content — nothing will be fetched');
-            btnSub.disabled = false;
-            subHint.textContent = 'Ready to enhance pasted content';
-            subHint.style.color = '#4cdf86';
-            return;
-        }
-
-        if (subMode === 'proxy') {
-            subMode = null;
-            setSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.');
-            btnSub.disabled = true;
-            subHint.textContent = 'Paste a subscription link or a VLESS/Trojan URL';
-            return;
-        }
-
-        subMode = null;
-        setSubError('Invalid input. Paste a link starting with http:// or https://, or paste the subscription contents.');
-        btnSub.disabled = true;
-        subHint.textContent = 'Paste a valid link above to enable';
-    }
-
-    // Single render path for both modes: enhance the parsed configs, show counts,
-    // and hand the same text to the copy / .txt / base64 .txt actions.
-    // focus=true is passed only by an explicit Fetch — an option tweak re-renders
-    // in place and must not yank the page down to the output.
-    function renderSubResults(configs, focus) {
-        let enhanced = [];
-        let skipped = 0;
-        let invalid = 0;
-        configs.forEach(line => {
-            // Raw base64 container line (no scheme): when it decodes to config
-            // lines, those twins are already separate entries below — skip it
-            // silently instead of a phantom skip/invalid report.
-            if (!SUB_SCHEME.test(line)) {
-                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
-                if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
-            }
-            const p = parseProxyURLSingle(line);
-            if (!p || p.error) {
-                invalid++;
-                return;
-            }
-            if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
-                skipped++;
-                return;
-            }
-            const res = enhanceURL(line, { ignoreServer: true });
-            if (res && res.url) {
-                enhanced.push(res.url);
-            } else {
-                skipped++;
-            }
-        });
-
-        if (enhanced.length === 0) {
-            subOutputSection.style.display = 'none';
-            subResults = [];
-            subHint.textContent = configs.length
-                ? 'Found configs, but none were VLESS/Trojan with a usable URL'
-                : 'No proxy configs found in the input';
-            subHint.style.color = '#f0c040';
-            subCard.classList.remove('valid');
-            subCard.classList.add('invalid');
-            setSubError(configs.length
-                ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
-                : 'No recognizable VLESS/VMess/Trojan/SS/SOCKS configs in the input. Open the link in a new tab and paste its contents here.');
-            return;
-        }
-
-        subResults = enhanced;
-
-        // A previous fetch may have failed without an edit in between — its
-        // error and its red card styling must not sit next to this output.
-        subParsed.textContent = '';
-        subCard.classList.remove('invalid');
-        subCard.classList.add('valid');
-
-        const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
-        if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
-        if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
-        subOutputRemark.textContent = parts.join(' · ');
-        subOutputUrl.textContent = enhanced.join('\n');
-        subOutputSection.style.display = 'block';
-        subLastSource = 'sub';
-        if (focus) subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        subHint.textContent = 'Done';
-        subHint.style.color = '#4cdf86';
-    }
-
-    // Options live in the same tab, so changing fp / cs / fm re-enhances
-    // the configs fetched earlier instead of leaving a stale output on screen.
-    function scheduleSubRender() {
-        if (subBusy || !subRawConfigs.length || subLastSource !== 'sub') return;
-        clearTimeout(subRenderTimer);
-        subRenderTimer = setTimeout(() => {
-            subRenderTimer = null;
-            if (subBusy || !subRawConfigs.length || subLastSource !== 'sub') return;
-            renderSubResults(subRawConfigs);
-        }, 300);
-    }
-
-    // Shared by the fetch success and error paths: the field changed mid-fetch,
-    // so drop whatever came back and say so — never render anything, error or
-    // output, under input it no longer belongs to.
-    function onSubStale() {
-        subRawConfigs = [];
-        btnSub.disabled = !subCanRun(subValidate(subUrl.value.trim()));
-        syncOpenButton();
-        subHint.textContent = 'Input changed during the fetch — fetch again';
-        subHint.style.color = '#f0c040';
-    }
-
-    function onSubFetched(body, fetchRaw) {
-        if (!subBusy) return;
-        subBusy = false;
-        // A queued progress tick must not overwrite the final status.
-        if (subProgressTimer) {
-            clearTimeout(subProgressTimer);
-            subProgressTimer = null;
-        }
-        if (subRenderTimer) {
-            clearTimeout(subRenderTimer);
-            subRenderTimer = null;
-        }
-        // The field may have been replaced mid-fetch. Never render a body under
-        // input it no longer belongs to: the input handler already wiped the
-        // previous output, so there is nothing to show until the next fetch.
-        if (subUrl.value.trim() !== fetchRaw) {
-            onSubStale();
-            return;
-        }
-        btnSub.disabled = false;
-        syncOpenButton();
-        // Note: the Enhancer's server field and its lastAutoServer tracking are
-        // deliberately untouched here — subscriptions call enhanceURL with
-        // ignoreServer:true, so they never read the field, and clearing
-        // lastAutoServer alone would desync the auto-fill logic on next paste.
-        const configs = extractSubConfigs(body);
-        subRawConfigs = configs;
-        renderSubResults(configs, true);
-    }
-
-    function onSubProgress(loaded, total) {
-        if (subProgressTimer) return;
-        subProgressTimer = setTimeout(() => {
-            subProgressTimer = null;
-            if (!subBusy) return;
-            const kb = Math.round(loaded / 1024);
-            subHint.textContent = total
-                ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
-                : 'Fetching… ' + kb + ' KB';
-        }, 150);
-    }
-
-    async function onSub() {
-        const raw = subUrl.value.trim();
-        if (!raw || subBusy) return;
-
-        // Validate freshly rather than trusting the cached subMode: the field may
-        // have changed since the last input event.
-        subMode = subValidate(raw);
-        if (!subCanRun(subMode)) {
-            onSubInput();
-            return;
-        }
-
-        // Pasted content: no fetch at all.
-        if (subMode === 'content') {
-            subRawConfigs = extractSubConfigs(raw);
-            renderSubResults(subRawConfigs, true);
-            return;
-        }
-
-        subBusy = true;
-        btnSub.disabled = true;
-        btnOpenSub.disabled = true;
-        subHint.textContent = 'Fetching…';
-        subHint.style.color = '';
-        // A retry without an edit must not keep the previous error — or the
-        // previous red card styling — on screen. The old output is hidden too,
-        // so a failed retry cannot leave stale configs next to the new error.
-        subParsed.textContent = '';
-        subCard.classList.remove('invalid');
-        subOutputSection.style.display = 'none';
-        subResults = [];
-        subRawConfigs = [];
-
-        try {
-            const body = await fetchSubBody(raw, onSubProgress);
-            onSubFetched(body, raw);
-        } catch (e) {
-            subBusy = false;
-            if (subProgressTimer) {
-                clearTimeout(subProgressTimer);
-                subProgressTimer = null;
-            }
-            if (subUrl.value.trim() !== raw) {
-                onSubStale();
-                return;
-            }
-            btnSub.disabled = false;
-            syncOpenButton();
-            subHint.textContent = 'Fetch failed';
-            subHint.style.color = '#f05050';
-            subCard.classList.remove('valid');
-            subCard.classList.add('invalid');
-            setSubError(subErrorText(e));
-            if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setSubCorsGuide(raw);
-        }
-    }
+    // scheduleSubRender / onSubStale / onSubFetched / onSubProgress removed (026):
+    // closures scheduleTabRender / handleTabStale / onTabFetched / onTabProgress
+    // in the fragTab controller (300 ms + 150 ms shapes kept).
 
     function downloadText(name, text, mime) {
         const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
@@ -2616,32 +2158,56 @@
     });
     echTab.wireTab();
 
-    subUrl.addEventListener('input', onSubInput);
-    subClear.addEventListener('click', () => {
-        subUrl.value = '';
-        onSubInput();
+    // Fragment tab instance (026): same controller, fragment option set +
+    // per-tab data (filenames, CORS step-3, subCopy verbatim). Five intended
+    // behavior changes vs the deleted originals: busy guard on sub-input,
+    // URL-input hides shared output, post-override remark re-read, red-hint
+    // empty-enhance failure, ECH noConfigs wording. 019 helper calls + 023
+    // scheduler shapes preserved via the controller.
+    const fragTab = createEnhanceTab({
+        enhanceSingle: enhanceURL,
+        ids: {
+            urlInput: enhancerInput, urlClear: enhancerClear, urlParsed: enhancerParsed,
+            urlProtocolTag: enhancerProtocolTag, urlCard: enhancerCard,
+            btnUrlEnhance: btnEnhance, urlHint: enhanceHint,
+            subCard: subCard, subInput: subUrl, subClear: subClear,
+            subParsed: subParsed, subProtocolTag: subProtocolTag,
+            btnSub: btnSub, btnOpenSub: btnOpenSub, subHint: subHint,
+            outputSection: subOutputSection, outputUrl: subOutputUrl,
+            outputRemark: subOutputRemark,
+            btnCopy: btnCopySub, btnDownload: btnDownloadSub, btnDownloadB64: btnDownloadSubB64
+        },
+        serverEl: enhancerServer,
+        urlJoin: '\n\n',
+        subJoin: '\n',
+        remarkJoiner: ' · ',
+        corsGuideStep3: 'Paste it into the box above and press Fetch & Enhance.',
+        exportNames: { txt: 'enhanced-configs.txt', b64: 'enhanced-configs-base64.txt' },
+        failureCopy: { noConfigs: 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.' },
+        countRule: 'skipped',
+        showProtocolTag: true,
+        busyGuardOnInput: true,
+        optionWatch: [
+            { el: enhancerFp, event: 'change' },
+            { el: enhancerFmPreset, event: 'change' },
+            { el: enhancerCs, event: 'input' },
+            { el: enhancerFm, event: 'input' }
+        ],
+        subCopy: {
+            empty: 'Paste a subscription link — or its contents — to enable',
+            linkReady: 'Ready to fetch and enhance',
+            contentReady: 'Ready to enhance pasted content',
+            proxyHint: 'Paste a subscription link or a VLESS/Trojan URL',
+            proxyError: 'That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.',
+            invalidHint: 'Paste a valid link above to enable',
+            invalidError: 'Invalid input. Paste a link starting with http:// or https://, or paste the subscription contents.'
+        },
+        copyHintEl: subHint
     });
-    btnSub.addEventListener('click', onSub);
-    btnOpenSub.addEventListener('click', () => {
-        const v = subUrl.value.trim();
-        if (subValidate(v) === 'link') openSubLink(v);
-    });
-    subCard.addEventListener('dragenter', onSubDragOver);
-    subCard.addEventListener('dragover', onSubDragOver);
-    subCard.addEventListener('dragleave', onSubDragLeave);
-    subCard.addEventListener('drop', onSubDrop);
-    // Re-run the enhancement when the shared options change (selects vs textareas).
-    [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
-    [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
-    btnCopySub.addEventListener('click', () => copyTextWithFeedback(btnCopySub, subOutputUrl.textContent, subHint));
-    btnDownloadSub.addEventListener('click', () => {
-        if (!subResults.length) return;
-        downloadText('enhanced-configs.txt', subOutputUrl.textContent + '\n');
-    });
-    btnDownloadSubB64.addEventListener('click', () => {
-        if (!subResults.length) return;
-        downloadText('enhanced-configs-base64.txt', encodeUtf8ToB64(subOutputUrl.textContent));
-    });
+    fragTab.wireTab();
+
+    // Fragment sub-input/fetch/copy/download wiring removed (026): owned by the
+    // fragTab instance (filenames + watched controls unchanged).
 
     // ===== Main Tab switching =====
     function switchMainTab(viewName) {
@@ -2903,54 +2469,11 @@
             hint.style.color = '#f05050';
         });
     }
-    function onEnhancerDragOver(e) {
-        e.preventDefault();
-        enhancerCard.classList.add('dragover');
-    }
-    function onEnhancerDragLeave(e) {
-        e.preventDefault();
-        // dragleave also fires when moving between children of the card —
-        // only clear the highlight when the pointer truly leaves it.
-        if (e.relatedTarget && enhancerCard.contains(e.relatedTarget)) return;
-        enhancerCard.classList.remove('dragover');
-    }
-    function onEnhancerDrop(e) {
-        dropTextFileOnto(e, enhancerCard, enhancerInput, onEnhancerInput, enhanceHint);
-    }
+    // Fragment URL-card drag handlers removed (026): owned by the fragTab instance.
     // ECH URL-card drag + debounced input + enhance/copy wiring removed (026):
     // owned by the echTab instance (same dropTextFileOnto helper, 150 ms shape).
-    // Debounced enhancer URL input (150 ms keeps typing snappy): every
-    // keystroke re-parses every line and rebuilds the parsed-info panel, so
-    // the timer coalesces bursts from large pastes — same shape as
-    // scheduleSubRender. An emptied field runs synchronously so
-    // button-disable feedback never lags a clear. Paste shares this
-    // scheduler: paste fires both paste and input, and one timer means one
-    // parse instead of two.
-    let enhancerInputTimer = null;
-    function scheduleEnhancerInput() {
-        if (!enhancerInput.value.trim()) {
-            clearTimeout(enhancerInputTimer);
-            enhancerInputTimer = null;
-            onEnhancerInput();
-            return;
-        }
-        clearTimeout(enhancerInputTimer);
-        enhancerInputTimer = setTimeout(() => {
-            enhancerInputTimer = null;
-            onEnhancerInput();
-        }, 150);
-    }
-    enhancerInput.addEventListener('input', scheduleEnhancerInput);
-    enhancerInput.addEventListener('paste', scheduleEnhancerInput);
-    enhancerClear.addEventListener('click', () => {
-        enhancerInput.value = '';
-        onEnhancerInput();
-    });
-    enhancerCard.addEventListener('dragenter', onEnhancerDragOver);
-    enhancerCard.addEventListener('dragover', onEnhancerDragOver);
-    enhancerCard.addEventListener('dragleave', onEnhancerDragLeave);
-    enhancerCard.addEventListener('drop', onEnhancerDrop);
-    btnEnhance.addEventListener('click', onEnhance);
+    // Fragment URL-input debounce + card/enhance wiring removed (026): owned by
+    // the fragTab instance (same dropTextFileOnto helper, 150 ms shape).
     // ECH sub-input/sub-button wiring removed (026): owned by the echTab instance.
     // ECH input-mode sub-tabs (scoped to #view-ech so the sing-box panels
     // driven by the generic switchSubTab are untouched).
