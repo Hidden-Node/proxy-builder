@@ -1306,7 +1306,7 @@
         const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
         if (file.size > SUB_MAX_FILE_BYTES) {
-            onEchSubDropError('That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.');
+            onEchSubDropError(SUB_TOO_LARGE_MSG);
             return;
         }
         const reader = new FileReader();
@@ -2613,9 +2613,15 @@
             // rely on the total-timeout backstop to end true stalls (worst case
             // for a stall here is the 5-minute total timeout, not the idle one).
             if (!res.body || typeof res.body.getReader !== 'function') {
+                if (total > SUB_MAX_FILE_BYTES) {
+                    throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
+                }
                 const keepAlive = setInterval(kick, Math.min(10000, SUB_IDLE_MS));
                 try {
                     const text = await res.text();
+                    if (new TextEncoder().encode(text).length > SUB_MAX_FILE_BYTES) {
+                        throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
+                    }
                     onProgress(new TextEncoder().encode(text).length, total);
                     return text;
                 } finally {
@@ -2632,6 +2638,10 @@
                 kick();
                 parts.push(value);
                 loaded += value.length;
+                if (loaded > SUB_MAX_FILE_BYTES) {
+                    try { await reader.cancel(); } catch (_) {}
+                    throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
+                }
                 onProgress(loaded, total);
             }
 
@@ -2715,6 +2725,7 @@
     // Accept a saved subscription file (.txt) dropped onto the card. Everything
     // stays local: FileReader never uploads anything.
     const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
+    const SUB_TOO_LARGE_MSG = 'That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.';
 
     // A drop error must not leave a previous output on screen either.
     function onSubDropError(text) {
@@ -2742,7 +2753,7 @@
         const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
         if (file.size > SUB_MAX_FILE_BYTES) {
-            onSubDropError('That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.');
+            onSubDropError(SUB_TOO_LARGE_MSG);
             return;
         }
         const reader = new FileReader();
@@ -2790,6 +2801,9 @@
         if (subIsBlockedError(e)) {
             return 'This provider blocks browser access (it sends no CORS headers), so the direct fetch ' +
                 'was refused. Open the link in a new tab and paste its contents into this box — that always works.';
+        }
+        if (e && e.name === 'SubTooLarge') {
+            return SUB_TOO_LARGE_MSG;
         }
         return 'Could not read the response (' + msg + ').';
     }
