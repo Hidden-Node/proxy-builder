@@ -456,7 +456,7 @@ function parseVless(url) {
     try {
         const u = new URL(url);
         if (!u.username) return { error: 'Failed to parse VLESS URL: missing userinfo' };
-        const uuid = u.username || safeDecode(url.split('://')[1].split('@')[0]);
+        const uuid = u.username;
         if (!uuid) return { error: 'Failed to parse VLESS URL: missing userinfo' };
         const params = Object.fromEntries(u.searchParams);
         return {
@@ -526,7 +526,7 @@ function parseTrojan(url) {
     try {
         const u = new URL(url);
         if (!u.username) return { error: 'Failed to parse Trojan URL: missing userinfo' };
-        const password = safeDecode(u.username || url.split('://')[1].split('@')[0]);
+        const password = safeDecode(u.username);
         if (!password) return { error: 'Failed to parse Trojan URL: missing userinfo' };
         const params = Object.fromEntries(u.searchParams);
         return {
