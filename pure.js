@@ -836,7 +836,7 @@ function parseHttp(url) {
             hostPart = hostPart.slice(0, qIdx);
         }
         hostPart = hostPart.replace(/\/+$/, '');
-        // A stray path (socks://host/extra) is not part of the server name.
+        // A stray path (http://host/extra) is not part of the server name.
         hostPart = hostPart.split('/')[0];
 
         if (hostPart.startsWith('[')) {
