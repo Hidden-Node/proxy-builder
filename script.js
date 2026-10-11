@@ -697,6 +697,8 @@
     }
 
     function onEnhancerInput() {
+        subRawConfigs = [];
+        subLastSource = '';
         const val = enhancerInput.value.trim();
         const lines = extractLines(val);
         let parsedList = [];
@@ -819,6 +821,7 @@
         subOutputRemark.textContent = remark;
         subOutputUrl.textContent = enhancedUrls.join('\n\n');
         subOutputSection.style.display = 'block';
+        subLastSource = 'url';
         subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -2530,6 +2533,7 @@
 
     let subResults = [];
     let subRawConfigs = [];
+    let subLastSource = '';
     let subMode = 'link';
     let subBusy = false;
     // Two timers, not one: the progress throttle and the option debounce must
@@ -2819,6 +2823,7 @@
         subProtocolTag.classList.remove('active');
         subProtocolTag.textContent = '—';
         subRawConfigs = [];
+        subLastSource = '';
 
         // Any edit invalidates the previous result: leaving a 65-line output and
         // its Copy/Download buttons under a new error message is misleading.
@@ -2884,6 +2889,13 @@
         let skipped = 0;
         let invalid = 0;
         configs.forEach(line => {
+            // Raw base64 container line (no scheme): when it decodes to config
+            // lines, those twins are already separate entries below — skip it
+            // silently instead of a phantom skip/invalid report.
+            if (!SUB_SCHEME.test(line)) {
+                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+                if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
+            }
             const p = parseProxyURLSingle(line);
             if (!p || p.error) {
                 invalid++;
@@ -2930,6 +2942,7 @@
         subOutputRemark.textContent = parts.join(' · ');
         subOutputUrl.textContent = enhanced.join('\n');
         subOutputSection.style.display = 'block';
+        subLastSource = 'sub';
         if (focus) subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         subHint.textContent = 'Done';
         subHint.style.color = '#4cdf86';
@@ -2938,11 +2951,11 @@
     // Options live in the same tab, so changing fp / cs / fm re-enhances
     // the configs fetched earlier instead of leaving a stale output on screen.
     function scheduleSubRender() {
-        if (subBusy || !subRawConfigs.length) return;
+        if (subBusy || !subRawConfigs.length || subLastSource !== 'sub') return;
         clearTimeout(subRenderTimer);
         subRenderTimer = setTimeout(() => {
             subRenderTimer = null;
-            if (subBusy || !subRawConfigs.length) return;
+            if (subBusy || !subRawConfigs.length || subLastSource !== 'sub') return;
             renderSubResults(subRawConfigs);
         }, 300);
     }
