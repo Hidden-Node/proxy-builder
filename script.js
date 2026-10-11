@@ -2455,15 +2455,7 @@
     });
     btnDownloadSubB64.addEventListener('click', () => {
         if (!subResults.length) return;
-        // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
-        // Chunked because a spread over a few hundred KB overflows the arg limit.
-        // Exports exactly what is displayed (URL mode uses blank-line separation).
-        const bytes = new TextEncoder().encode(subOutputUrl.textContent);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-        }
-        downloadText('enhanced-configs-base64.txt', btoa(bin));
+        downloadText('enhanced-configs-base64.txt', encodeUtf8ToB64(subOutputUrl.textContent));
     });
 
     // ===== Main Tab switching =====
@@ -2815,14 +2807,7 @@
     });
     btnDownloadEchB64.addEventListener('click', () => {
         if (!echOutputList.length) return;
-        // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
-        // Chunked because a spread over a few hundred KB overflows the arg limit.
-        const bytes = new TextEncoder().encode(echOutputUrl.textContent);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-        }
-        downloadText('ech-enhanced-configs-base64.txt', btoa(bin));
+        downloadText('ech-enhanced-configs-base64.txt', encodeUtf8ToB64(echOutputUrl.textContent));
     });
     echSubCard.addEventListener('dragenter', onEchSubDragOver);
     echSubCard.addEventListener('dragover', onEchSubDragOver);
