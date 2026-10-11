@@ -1,0 +1,10 @@
+{
+  "name": "proxy-builder",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser-local proxy URL enhancer and chain builder (static, zero-dependency)",
+  "scripts": {
+    "check": "node --check pure.js && node --check script.js",
+    "test": "node --test tests/pure.test.js"
+  }
+}
