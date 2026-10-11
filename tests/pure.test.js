@@ -439,6 +439,9 @@ describe('truncateStr and maskString', () => {
         assert.equal(truncateStr(12345, 3), '123…');
         assert.equal(maskString(123456789), '1234••••6789');
         assert.equal(truncateStr(null, 3), '');
+        assert.equal(truncateStr(undefined, 3), '');
+        assert.equal(maskString(null), '');
+        assert.equal(maskString(undefined), '');
     });
 });
 
