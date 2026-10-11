@@ -201,6 +201,7 @@ TLS، Reality، None
   <li><b>HTML5</b>: ساختار معنایی.</li>
   <li><b>CSS3</b>: متغیرهای سفارشی، افکت‌های شیشه‌ای (Glassmorphism) و انیمیشن‌ها.</li>
   <li><b>JavaScript</b>: منطق اصلی برای پارس لینک، ارتقای کانفیگ و تولید JSON.</li>
+  <li><b>فونت‌ها</b>: فونت‌های Inter و JetBrains Mono به‌صورت محلی (پوشه <code>fonts/</code> با فرمت woff2) میزبانی می‌شوند — هیچ درخواستی به CDN فونت ارسال نمی‌گردد.</li>
 </ul>
 
 ## 🛡️ کردیت‌ها (Credits)

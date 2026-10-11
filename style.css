@@ -1,4 +1,54 @@
 /* ===== CSS Variables & Reset ===== */
+/* Self-hosted fonts (latin subset, woff2) — no third-party font requests. */
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url("fonts/inter-300-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("fonts/inter-400-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("fonts/inter-500-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("fonts/inter-600-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("fonts/inter-700-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("fonts/jetbrains-mono-400-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url("fonts/jetbrains-mono-500-latin.woff2") format("woff2");
+}
 :root {
     --bg-primary: #0a0a0f;
     --bg-secondary: #12121a;

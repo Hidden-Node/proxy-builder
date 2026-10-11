@@ -124,6 +124,7 @@ TLS, Reality, None
 - **HTML5**: Semantic structure.
 - **CSS3**: Custom variables, glassmorphism, and animations.
 - **JavaScript**: Core logic for URL parsing, enhancement and JSON generation.
+- **Fonts**: Inter + JetBrains Mono self-hosted locally (`fonts/`, woff2) — no font CDN requests.
 
 ## 🛡️ Credits
 
