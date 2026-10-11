@@ -1411,10 +1411,11 @@
                 const keepAlive = setInterval(kick, Math.min(10000, SUB_IDLE_MS));
                 try {
                     const text = await res.text();
-                    if (new TextEncoder().encode(text).length > SUB_MAX_FILE_BYTES) {
+                    const textBytes = new TextEncoder().encode(text).length;
+                    if (textBytes > SUB_MAX_FILE_BYTES) {
                         throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
                     }
-                    onProgress(new TextEncoder().encode(text).length, total);
+                    onProgress(textBytes, total);
                     return text;
                 } finally {
                     clearInterval(keepAlive);
