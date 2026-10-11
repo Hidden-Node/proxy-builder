@@ -1374,6 +1374,8 @@
     // Bodies can be several hundred KB and arrive slowly, so we abort on
     // silence rather than after a fixed total time.
     // SUB_IDLE_MS / SUB_TOTAL_MS live in pure.js (shared with subErrorText).
+    const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
+    // SUB_TOO_LARGE_MSG lives in pure.js (shared with subErrorText).
 
     // Fragment per-tab state lives in its createEnhanceTab instance (026); globals removed.
 
@@ -1484,8 +1486,6 @@
 
     // Accept a saved subscription file (.txt) dropped onto the card. Everything
     // stays local: FileReader never uploads anything.
-    const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
-    // SUB_TOO_LARGE_MSG lives in pure.js (shared with subErrorText).
 
     // Fragment drop handlers removed (026): closures in the fragTab controller.
 
