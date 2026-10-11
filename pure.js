@@ -90,6 +90,136 @@ function normalizeEchInput(raw) {
     return value;
 }
 
+// ===== Enhance Cores =====
+// DOM-free cores behind value-in/value-out signatures: script.js wrappers
+// read the option elements and delegate; bulk paths pass ignoreServer.
+// NOTE the two functions DIFFER on fp==='none'/empty by design — fragment
+// keeps the existing fp, ECH deletes it. Preserve the asymmetry, do not unify.
+function enhanceUrlCore(raw, opts) {
+    const url = raw.trim();
+    if (!url) return { error: 'No URL provided' };
+    // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
+    // as well, and the bulk path would otherwise count those as "skipped".
+    const scheme = url.slice(0, url.indexOf('://')).toLowerCase();
+    if (scheme !== 'vless' && scheme !== 'trojan') {
+        return { error: 'Only VLESS and Trojan URLs are supported' };
+    }
+
+    let u;
+    try {
+        u = new URL(url);
+    } catch (e) {
+        return { error: 'Failed to parse URL: ' + e.message };
+    }
+
+    const params = u.searchParams;
+    const security = params.get('security') || 'none';
+
+    // Server override — auto-filled from URL, user-editable, empty keeps original.
+    // opts.ignoreServer skips it: a subscription holds many servers, so rewriting
+    // every entry to one address would break the whole list.
+    const server = (opts && opts.ignoreServer) ? '' : ((opts && opts.server) || '').trim();
+    if (server) {
+        const host = server.includes(':') && !server.startsWith('[')
+            ? '[' + server + ']'
+            : server;
+        try {
+            u.hostname = host;
+        } catch (e) {
+            return { error: 'Invalid server address: ' + e.message };
+        }
+    }
+
+    // Fingerprint — always applied when selected value is non-empty
+    const fp = ((opts && opts.fp) || '').trim();
+    if (fp && fp !== 'none') {
+        params.set('fp', fp);
+    }
+
+    // Cipher suites & fragment mask — only meaningful with TLS
+    if (security === 'tls') {
+        const cs = ((opts && opts.cs) || '').trim();
+        if (cs) {
+            params.set('cs', cs);
+        }
+        const fm = ((opts && opts.fm) || '').trim();
+        if (fm) {
+            params.set('fm', fm);
+        }
+    }
+
+    // URLSearchParams encodes spaces as '+', but v2ray-style clients use '%20'
+    u.search = u.search.replace(/\+/g, '%20');
+
+    return { url: u.toString() };
+}
+
+function enhanceEchUrlCore(raw, opts) {
+    const url = raw.trim();
+    if (!url) return { error: 'No URL provided' };
+    // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
+    // as well, and the bulk path would otherwise count those as "skipped".
+    const scheme = url.slice(0, url.indexOf('://')).toLowerCase();
+    if (scheme !== 'vless' && scheme !== 'trojan') {
+        return { error: 'Only VLESS and Trojan URLs are supported' };
+    }
+
+    let u;
+    try {
+        u = new URL(url);
+    } catch (e) {
+        return { error: 'Failed to parse URL: ' + e.message };
+    }
+
+    const params = u.searchParams;
+    // Missing security means plaintext ('none') — Trojan links are not
+    // always TLS (e.g. port-80 ws links with no security param), so never
+    // assume 'tls' here; that would inject ech into a plaintext config.
+    const security = params.get('security') || 'none';
+
+    // Server override — auto-filled from URL, user-editable, empty keeps original.
+    // opts.ignoreServer skips it for bulk input: a subscription holds many
+    // servers, so rewriting every entry to one address would break the list.
+    const server = (opts && opts.ignoreServer) ? '' : ((opts && opts.server) || '').trim();
+    if (server) {
+        const host = server.includes(':') && !server.startsWith('[')
+            ? '[' + server + ']'
+            : server;
+        try {
+            u.hostname = host;
+        } catch (e) {
+            return { error: 'Invalid server address: ' + e.message };
+        }
+    }
+
+    // Fingerprint — applied when set; 'none'/empty removes an existing value
+    // so "clear to skip" also strips a previously-enhanced URL.
+    const fp = ((opts && opts.fp) || '').trim();
+    if (fp && fp !== 'none') {
+        params.set('fp', fp);
+    } else {
+        params.delete('fp');
+    }
+
+    // ECH config list — only meaningful with TLS. A bare domain
+    // ("cloudflare-ech.com") is completed with the default DNS, BPB-style;
+    // URLSearchParams serializes the '+' separator as %2B, which is what
+    // Xray expects. Empty removes an existing value ("clear to skip").
+    if (security === 'tls') {
+        const ech = normalizeEchInput((opts && opts.ech) || '');
+        if (ech) {
+            params.set('ech', ech);
+        } else {
+            params.delete('ech');
+        }
+    }
+
+    // URLSearchParams encodes spaces as '+', but v2ray-style clients use '%20'
+    u.search = u.search.replace(/\+/g, '%20');
+
+    return { url: u.toString() };
+}
+
 // ===== URL Parser =====
 function extractLines(raw) {
     if (!raw) return [];
@@ -698,6 +828,7 @@ if (typeof module !== 'undefined' && module.exports) {
         safeAtob, safeDecode, extractLines,
         getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
         ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
+        enhanceUrlCore, enhanceEchUrlCore,
         parseProxyURLSingle, parseProxyURL, parseVless, parseVmess, parseTrojan, parseShadowsocks, parseSocks, parseHttp,
         maskString, truncateStr,
         subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate
