@@ -8,7 +8,10 @@ const {
     safeAtob, safeDecode, extractLines,
     getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
     ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
+    enhanceUrlCore, enhanceEchUrlCore,
     subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate,
+    SUB_IDLE_MS, SUB_TOTAL_MS, SUB_TOO_LARGE_MSG,
+    extractSubConfigs, subIsBlockedError, subErrorText,
     parseProxyURLSingle, parseProxyURL, parseVless, parseVmess,
     parseTrojan, parseShadowsocks, parseSocks, parseHttp,
     maskString, truncateStr
@@ -431,5 +434,211 @@ describe('html consistency', () => {
             const badge = scheme === 'socks5' ? 'socks' : scheme;
             assert.ok(html.includes('data-protocol="' + badge + '"'), 'missing badge for ' + scheme);
         }
+    });
+});
+
+const VLESS_TLS_FP = 'vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?security=tls&sni=example.com&fp=oldfp#R';
+const VLESS_NOTLS = 'vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:80?security=none#NT';
+const TROJAN_NOTLS = 'trojan://myPassword@trojan.example.com:80?security=none#TNT';
+const VLESS_QSPACE = 'vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?security=tls&sni=a%20b#R';
+const VLESS_CSF = 'vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?security=tls&cs=oldcs&fm=oldfm#Z';
+const VLESS_ECH = 'vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee@example.com:443?security=tls&ech=old-ech-value#E';
+
+function qp(url, key) {
+    return new URL(url).searchParams.get(key);
+}
+
+describe('enhanceUrlCore', () => {
+    it('sets fp+cs+fm on a tls URL', () => {
+        const r = enhanceUrlCore(VLESS_GOOD, { server: '', fp: 'chrome', cs: 'CSVAL', fm: 'FMVAL' });
+        assert.ok(r.url);
+        assert.equal(qp(r.url, 'fp'), 'chrome');
+        assert.equal(qp(r.url, 'cs'), 'CSVAL');
+        assert.equal(qp(r.url, 'fm'), 'FMVAL');
+    });
+
+    it('sets fp only on a non-tls URL (cs/fm are TLS-only)', () => {
+        const r = enhanceUrlCore(VLESS_NOTLS, { server: '', fp: 'chrome', cs: 'CSVAL', fm: 'FMVAL' });
+        assert.ok(r.url);
+        assert.equal(qp(r.url, 'fp'), 'chrome');
+        assert.equal(qp(r.url, 'cs'), null);
+        assert.equal(qp(r.url, 'fm'), null);
+    });
+
+    it('skips empty cs/fm on a tls URL', () => {
+        const r = enhanceUrlCore(VLESS_GOOD, { server: '', fp: 'chrome', cs: '', fm: '' });
+        assert.ok(r.url);
+        assert.equal(qp(r.url, 'cs'), null);
+        assert.equal(qp(r.url, 'fm'), null);
+    });
+
+    it('applies the server override and brackets IPv6', () => {
+        const v4 = enhanceUrlCore(VLESS_GOOD, { server: '9.9.9.9', fp: '', cs: '', fm: '' });
+        assert.equal(new URL(v4.url).hostname, '9.9.9.9');
+        const v6 = enhanceUrlCore(VLESS_GOOD, { server: '::1', fp: '', cs: '', fm: '' });
+        assert.equal(new URL(v6.url).hostname, '[::1]');
+    });
+
+    it('leaves an invalid server override in place without corrupting the URL', () => {
+        // The WHATWG hostname setter silently ignores invalid values instead
+        // of throwing, so the Invalid-server branch is preserved verbatim but
+        // unreachable here: the original host survives and the URL stays valid.
+        const r = enhanceUrlCore(VLESS_GOOD, { server: 'not a host!', fp: 'chrome', cs: '', fm: '' });
+        assert.ok(r.url);
+        assert.equal(new URL(r.url).hostname, 'example.com');
+    });
+
+    it('encodes spaces in the query as %20, not +', () => {
+        const r = enhanceUrlCore(VLESS_QSPACE, { server: '', fp: '', cs: '', fm: '' });
+        assert.ok(r.url.includes('sni=a%20b'));
+        assert.ok(!new URL(r.url).search.includes('+'));
+    });
+
+    it('rejects unsupported schemes, empty input and unparsable URLs', () => {
+        assert.match(enhanceUrlCore('ss://x@y:1', {}).error, /Only VLESS and Trojan/);
+        assert.match(enhanceUrlCore('   ', {}).error, /No URL provided/);
+        assert.match(enhanceUrlCore('vless://[::1', {}).error, /Failed to parse URL/);
+    });
+
+    it('skips the override with ignoreServer', () => {
+        const r = enhanceUrlCore(VLESS_GOOD, { server: '9.9.9.9', fp: '', cs: '', fm: '', ignoreServer: true });
+        assert.equal(new URL(r.url).hostname, 'example.com');
+    });
+
+    it("keeps the existing fp when fp is 'none' (fragment asymmetry)", () => {
+        const r = enhanceUrlCore(VLESS_TLS_FP, { server: '', fp: 'none', cs: '', fm: '' });
+        assert.equal(qp(r.url, 'fp'), 'oldfp');
+    });
+});
+
+describe('enhanceEchUrlCore', () => {
+    it('sets fp and completes a bare ech domain on a tls URL', () => {
+        const r = enhanceEchUrlCore(VLESS_GOOD, { server: '', fp: 'chrome', ech: 'cloudflare-ech.com' });
+        assert.ok(r.url);
+        assert.equal(qp(r.url, 'fp'), 'chrome');
+        assert.equal(qp(r.url, 'ech'), 'cloudflare-ech.com+' + ECH_DNS_DEFAULT);
+    });
+
+    it('ignores ech text on a non-tls URL but still applies fp', () => {
+        const r = enhanceEchUrlCore(TROJAN_NOTLS, { server: '', fp: 'chrome', ech: 'cloudflare-ech.com' });
+        assert.ok(r.url);
+        assert.equal(qp(r.url, 'fp'), 'chrome');
+        assert.equal(qp(r.url, 'ech'), null);
+    });
+
+    it("deletes an existing fp when fp is 'none' or empty (ECH asymmetry)", () => {
+        assert.equal(qp(enhanceEchUrlCore(VLESS_TLS_FP, { server: '', fp: 'none', ech: '' }).url, 'fp'), null);
+        assert.equal(qp(enhanceEchUrlCore(VLESS_TLS_FP, { server: '', fp: '', ech: '' }).url, 'fp'), null);
+    });
+
+    it('deletes an existing ech when the ech input is empty', () => {
+        const r = enhanceEchUrlCore(VLESS_ECH, { server: '', fp: '', ech: '' });
+        assert.equal(qp(r.url, 'ech'), null);
+    });
+
+    it('passes a domain+resolver value through verbatim', () => {
+        const full = 'cloudflare-ech.com+udp://1.1.1.1';
+        const r = enhanceEchUrlCore(VLESS_GOOD, { server: '', fp: '', ech: full });
+        assert.equal(qp(r.url, 'ech'), full);
+    });
+
+    it('applies the server override and skips it with ignoreServer', () => {
+        const over = enhanceEchUrlCore(VLESS_GOOD, { server: '9.9.9.9', fp: '', ech: '' });
+        assert.equal(new URL(over.url).hostname, '9.9.9.9');
+        const skip = enhanceEchUrlCore(VLESS_GOOD, { server: '9.9.9.9', fp: '', ech: '', ignoreServer: true });
+        assert.equal(new URL(skip.url).hostname, 'example.com');
+    });
+
+    it('rejects unsupported schemes and empty input', () => {
+        assert.match(enhanceEchUrlCore('ss://x@y:1', {}).error, /Only VLESS and Trojan/);
+        assert.match(enhanceEchUrlCore('   ', {}).error, /No URL provided/);
+    });
+});
+
+describe('extractSubConfigs', () => {
+    const lineA = 'vless://a@b:1';
+    const lineB = 'trojan://c@d:2';
+    const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+
+    it('returns a plain list as-is', () => {
+        assert.deepEqual(extractSubConfigs(lineA + '\n' + lineB), [lineA, lineB]);
+    });
+
+    it('decodes a whole-blob base64 body', () => {
+        assert.deepEqual(extractSubConfigs(b64(lineA + '\n' + lineB)), [lineA, lineB]);
+    });
+
+    it('decodes per-line base64 blobs', () => {
+        assert.deepEqual(extractSubConfigs(b64(lineA) + '\n' + b64(lineB)), [lineA, lineB]);
+    });
+
+    it('merges mixed plain+base64 lines with dedupe', () => {
+        const mixed = lineA + '\n' + b64(lineA) + '\n' + b64(lineB);
+        // Original lines stay verbatim; decoded configs are appended once —
+        // lineA decodes to an already-seen line so it is not duplicated.
+        assert.deepEqual(extractSubConfigs(mixed), [lineA, b64(lineA), b64(lineB), lineB]);
+    });
+
+    it('returns [] for junk, HTML and blank input', () => {
+        assert.deepEqual(extractSubConfigs('hello-world-no-scheme'), []);
+        assert.deepEqual(extractSubConfigs('<html>not a sub</html>'), []);
+        assert.deepEqual(extractSubConfigs('   '), []);
+    });
+});
+
+describe('subIsBlockedError', () => {
+    it('matches TypeError by name and fetch text as fallback', () => {
+        const t = new Error('whatever');
+        t.name = 'TypeError';
+        assert.equal(subIsBlockedError(t), true);
+        assert.equal(subIsBlockedError(new Error('Failed to fetch')), true);
+        assert.equal(subIsBlockedError(new Error('Load failed')), true);
+    });
+
+    it('rejects ordinary errors', () => {
+        assert.equal(subIsBlockedError(new Error('HTTP 500')), false);
+    });
+});
+
+function namedErr(name, message) {
+    const e = new Error(message);
+    e.name = name;
+    return e;
+}
+
+describe('subErrorText', () => {
+    it('reports the offline flag', () => {
+        assert.match(subErrorText(new Error('x'), false), /offline/);
+    });
+
+    it('reports a total timeout with the shared duration', () => {
+        assert.equal(Math.round(SUB_TOTAL_MS / 60000), 5);
+        assert.match(subErrorText(namedErr('SubTotalTimeout', 'Total timeout')), /longer than 5 minutes/);
+    });
+
+    it('reports an idle abort with the shared duration', () => {
+        assert.equal(Math.round(SUB_IDLE_MS / 1000), 30);
+        assert.match(subErrorText(namedErr('AbortError', 'idle-timeout')), /silent for 30s/);
+    });
+
+    it('explains HTTP 401/403/404/other distinctly', () => {
+        assert.match(subErrorText(new Error('HTTP 401')), /expired or invalid/);
+        assert.match(subErrorText(new Error('HTTP 403')), /expired or invalid/);
+        assert.match(subErrorText(new Error('HTTP 404')), /does not exist/);
+        assert.match(subErrorText(new Error('HTTP 500')), /wrong or the server/);
+    });
+
+    it('points blocked fetches at the paste fallback', () => {
+        const t = new Error('Failed to fetch');
+        t.name = 'TypeError';
+        assert.match(subErrorText(t), /blocks browser access/);
+    });
+
+    it('returns the shared message for SubTooLarge', () => {
+        assert.equal(subErrorText(namedErr('SubTooLarge', 'Subscription body exceeds 2 MiB')), SUB_TOO_LARGE_MSG);
+    });
+
+    it('falls back to the raw message for anything else', () => {
+        assert.equal(subErrorText(new Error('weird-boom')), 'Could not read the response (weird-boom).');
     });
 });
