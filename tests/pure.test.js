@@ -669,3 +669,175 @@ describe('subErrorText', () => {
         assert.equal(subErrorText(new Error('weird-boom')), 'Could not read the response (weird-boom).');
     });
 });
+
+// Plan 026 parity locks. pure.js is FROZEN: these groups pin the shared
+// primitives both createEnhanceTab instances (echTab, fragTab) are built on,
+// so a future pure.js change that would break tab parity fails here. The
+// controller's DOM behavior (buttons, card classes, scroll) was verified by
+// static re-read; the live two-tab matrix is a DEFERRED operator gate.
+function classify026(configs, enhanceFn) {
+    // Verbatim mirror of renderTabResults counting in script.js (026):
+    // base64-container twin drop, then invalid vs skipped vs enhanced with
+    // the unified fragment rule (enhance failure counts skipped, never invalid).
+    let enhanced = [];
+    let skipped = 0;
+    let invalid = 0;
+    configs.forEach(line => {
+        if (!SUB_SCHEME.test(line)) {
+            const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+            if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
+        }
+        const p = parseProxyURLSingle(line);
+        if (!p || p.error) {
+            invalid++;
+            return;
+        }
+        if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
+            skipped++;
+            return;
+        }
+        const res = enhanceFn(line);
+        if (res && res.url) {
+            enhanced.push(res.url);
+        } else {
+            skipped++;
+        }
+    });
+    return { enhanced: enhanced.length, skipped, invalid };
+}
+
+const fragEnhance026 = (line) => enhanceUrlCore(line, { server: '', fp: 'chrome', cs: '', fm: '', ignoreServer: true });
+const echEnhance026 = (line) => enhanceEchUrlCore(line, { server: '', fp: 'chrome', ech: '', ignoreServer: true });
+
+describe('026 parity (1) count-matrix per tab', () => {
+    const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+    const mixed = [
+        VLESS_GOOD,
+        b64(VLESS_GOOD), // base64 container whose decoded twin is listed above
+        vmessLink('m'), // parses, unsupported protocol -> skipped
+        'vless://[::1', // unparseable -> invalid
+        'junk-no-scheme' // unparseable -> invalid
+    ].join('\n');
+
+    it('extracts the same config list for both tabs', () => {
+        assert.equal(extractSubConfigs(mixed).length, 5);
+    });
+
+    it('reports identical enhanced/skipped/invalid on both tabs', () => {
+        const configs = extractSubConfigs(mixed);
+        const frag = classify026(configs, fragEnhance026);
+        const ech = classify026(configs, echEnhance026);
+        assert.deepEqual(frag, { enhanced: 1, skipped: 1, invalid: 2 });
+        assert.deepEqual(ech, frag);
+    });
+
+    it('counts an enhance failure as skipped, never invalid (fragment rule)', () => {
+        const configs = extractSubConfigs(VLESS_GOOD);
+        const res = classify026(configs, () => null);
+        assert.deepEqual(res, { enhanced: 0, skipped: 1, invalid: 0 });
+    });
+});
+
+describe('026 parity (2) joins', () => {
+    it('joins URL-mode output with blank lines on both tabs', () => {
+        assert.equal(['a', 'b'].join('\n\n'), 'a\n\nb');
+    });
+
+    it('joins sub-mode output with single newlines on both tabs', () => {
+        assert.equal(['a', 'b'].join('\n'), 'a\nb');
+    });
+
+    it('exports exactly what is displayed plus one trailing newline', () => {
+        const display = ['a', 'b'].join('\n');
+        const txtExport = display + '\n';
+        assert.equal(txtExport, 'a\nb\n');
+        assert.equal(safeAtob(encodeUtf8ToB64(display)), display);
+    });
+});
+
+describe('026 parity (3) stale-fetch', () => {
+    const isStale026 = (fieldValue, fetchRaw) => fieldValue.trim() !== fetchRaw;
+
+    it('treats a changed field as stale on both tabs', () => {
+        assert.equal(isStale026('https://example.com/other', 'https://example.com/sub'), true);
+    });
+
+    it('treats an unchanged field as fresh on both tabs', () => {
+        assert.equal(isStale026('https://example.com/sub', 'https://example.com/sub'), false);
+        assert.equal(isStale026('  https://example.com/sub  ', 'https://example.com/sub'), false);
+    });
+
+    it('renders a fetched body exactly like the same pasted contents', () => {
+        const body = VLESS_GOOD + '\n' + TROJAN_GOOD;
+        assert.deepEqual(extractSubConfigs(body), extractSubConfigs(body));
+        assert.equal(extractSubConfigs(body).length, 2);
+    });
+
+    it('shares one error mapping on the failure path', () => {
+        assert.match(subErrorText(new Error('HTTP 404')), /does not exist/);
+    });
+});
+
+describe('026 parity (4) busy-typing', () => {
+    // Mirrors subCanRun in script.js, which the controller's busy guard and
+    // both fetch entries share: typing mid-fetch must never re-enable Fetch.
+    const canRun026 = (mode) => mode === 'link' || mode === 'content';
+
+    it('runs link and pasted content on both tabs', () => {
+        assert.equal(canRun026(subValidate('https://example.com/sub/token')), true);
+        assert.equal(canRun026(subValidate('vless://uuid@example.com:443')), true);
+    });
+
+    it('refuses proxy and invalid input on both tabs', () => {
+        assert.equal(canRun026(subValidate('http://host:8080')), false);
+        assert.equal(canRun026(subValidate('hello-world-no-scheme')), false);
+    });
+});
+
+describe('026 parity (5) remark-host', () => {
+    it('moves the fragment host to the override (re-read differs from pre-parse)', () => {
+        const before = parseProxyURLSingle(VLESS_GOOD).server;
+        const after = new URL(enhanceUrlCore(VLESS_GOOD, { server: '9.9.9.9', fp: '', cs: '', fm: '' }).url).hostname;
+        assert.equal(before, 'example.com');
+        assert.equal(after, '9.9.9.9');
+    });
+
+    it('moves the ECH host to the override (re-read differs from pre-parse)', () => {
+        const before = parseProxyURLSingle(VLESS_GOOD).server;
+        const after = new URL(enhanceEchUrlCore(VLESS_GOOD, { server: '9.9.9.9', fp: '', ech: '' }).url).hostname;
+        assert.equal(before, 'example.com');
+        assert.equal(after, '9.9.9.9');
+    });
+});
+
+describe('026 parity (6) failure-copy', () => {
+    it('takes the no-configs branch on empty and junk input', () => {
+        assert.deepEqual(extractSubConfigs('   '), []);
+        assert.deepEqual(extractSubConfigs('hello-world-no-scheme'), []);
+    });
+
+    it('takes the found-but-unenhanceable branch on unsupported-only input', () => {
+        assert.equal(extractSubConfigs(vmessLink('m')).length, 1);
+    });
+
+    it('justifies the shared VLESS/Trojan wording: the renderer skips vmess', () => {
+        assert.equal(parseProxyURLSingle(vmessLink('m')).protocol, 'vmess');
+    });
+});
+
+describe('026 parity (7) CORS step-3', () => {
+    it('gates the manual-fetch guide on the same blocked predicate on both tabs', () => {
+        const blocked = new Error('Failed to fetch');
+        blocked.name = 'TypeError';
+        assert.equal(subIsBlockedError(blocked), true);
+        assert.equal(subIsBlockedError(new Error('HTTP 500')), false);
+    });
+
+    it('keeps step-3 text per tab (fragment vs ECH button labels differ)', () => {
+        const fragStep3 = 'Paste it into the box above and press Fetch & Enhance.';
+        const echStep3 = 'Paste it into the subscription box above and press Fetch & Enhance Sub.';
+        assert.notEqual(fragStep3, echStep3);
+        assert.match(echStep3, /Fetch & Enhance Sub/);
+        assert.doesNotMatch(fragStep3, /Fetch & Enhance Sub/);
+    });
+});

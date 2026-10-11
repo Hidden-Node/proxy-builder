@@ -115,8 +115,8 @@
     let parsedConfig2 = null;
     let sshMode1 = false;
     let sshMode2 = false;
-    let lastAutoServer = '';
-    // lastAutoEchServer removed (026): per-instance closure in the ECH tab controller.
+    // lastAutoServer / lastAutoEchServer removed (026): per-instance closures
+    // in the tab controllers.
 
     // ===== SSH Parser (reads from form fields) =====
     function parseSSH(configNum) {
