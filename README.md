@@ -63,6 +63,8 @@ This ensures that your final outgoing IP address is that of the **Chain Proxy**,
 
 ## 🛠️ Usage
 
+For full clipboard support, serve this folder locally — e.g. `python3 -m http.server` or `npx serve` — then open via `http://localhost:PORT` (or HTTPS); opening the file directly (`file://`) falls back to manual copy.
+
 ### 🛡️ ECH
 1. Open the app — the **ECH** tab is active by default.
 2. Paste your **VLESS** or **Trojan** URL.
@@ -130,6 +132,15 @@ TLS, Reality, None
 
 - The **Fragment + Fingerprint** enhancement logic (`cs` / `fm` / `fp` injection and URL export format) is based on the [PattNG](https://github.com/patterniha/PattNG) project's export-to-clipboard behavior.
 - The **Chain Builder** draws inspiration and logic from the [BPB-Worker-Panel](https://github.com/bia-pain-bache/BPB-Worker-Panel) project and this [Sing-box configuration](https://gist.github.com/alireza-delavari/62e56af0d59c92b5b1798f1442f90f61).
+
+## 📚 Decision log
+
+Settled decisions live in `plans/README.md` (the contract — if this snapshot drifts, the log wins; if the log outgrows this mirror, collapse to pointer-only):
+- VMess bulk handling is documented behavior, not a gap.
+- Editable ECH presets rejected — the manual field covers custom values.
+- God-file split deferred pending pure coverage (011/016/017 now done in review).
+- Xray `domain+resolver` ech passthrough verified correct per Xray docs (C-11 rejected).
+- Green low-importance items (packet_encoding, log mapping, remote-dns rule, link rel, credential masking) operator-scoped-out, not rejected on merit.
 
 ---
 Built with ❤️ for the privacy community.
