@@ -2485,17 +2485,7 @@
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
-        // file:// / plain http have no async clipboard — a sync throw here
-        // would bypass .then() entirely, so bail out quietly instead.
-        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
-        navigator.clipboard.writeText(text).then(() => {
-            btn.classList.add('copied');
-            btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
-            setTimeout(() => {
-                btn.classList.remove('copied');
-                btn.innerHTML = '<span class="copy-icon">📋</span> Copy';
-            }, 2000);
-        });
+        copyTextWithFeedback(btn, text, generateHint);
     }
 
     function doDownload(configGenerator, prefix) {
@@ -2509,15 +2499,7 @@
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
-        const blob = new Blob([text], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${prefix}-${parsedConfig1.protocol}-${parsedConfig2.protocol}-${parsedConfig2.server}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        downloadText(`${prefix}-${parsedConfig1.protocol}-${parsedConfig2.protocol}-${parsedConfig2.server}.json`, text, 'application/json');
     }
 
     // ===== Subscription Import =====
