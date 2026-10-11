@@ -2431,6 +2431,577 @@
         });
     }
 
+    // ===== Unified enhance pipeline (Plan 026) =====
+    // Single fetch→extract→render→export flow parameterized by enhance fn + option
+    // handles. Parity policies (locked): countRule fragment's skipped++ on both;
+    // busy guard (ECH freeze-button) on both; URL-input hides shared output (ECH)
+    // on both; remark host post-override re-read (ECH) on both; empty-enhance red
+    // hint (ECH wording) on both; failureCopy.noConfigs ECH wording on both;
+    // CORS step-3 + export filenames stay per-tab; 012 SSH guards + 018 helper
+    // routing + 019 b64 helper calls + 023 debounced schedulers preserved.
+    // Extra accepted fixes (see NOTES): fetch-start clears url/remark text (ECH) on
+    // both; drop-error re-validates (ECH) on both; input-invalid adds invalid card
+    // class (ECH) on both; fetch-completion clears queued render timer (fragment)
+    // on both; sub paste setTimeout(…,50) (ECH) as superset for both.
+    // pure.js is FROZEN — this consumes stable enhanceUrlCore/enhanceEchUrlCore
+    // signatures via enhanceSingle/enhanceBulk, never rewrites them.
+    function createEnhanceTab(cfg) {
+        const {
+            enhanceSingle, enhanceBulk,
+            ids, urlJoin, subJoin, remarkJoiner,
+            corsGuideStep3, exportNames, failureCopy,
+            countRule, showProtocolTag, busyGuardOnInput,
+            optionWatch, subCopy, copyHintEl, serverEl
+        } = cfg;
+        const {
+            urlInput, urlClear, urlParsed, urlProtocolTag, urlCard, btnUrlEnhance, urlHint,
+            subCard, subInput, subClear, subParsed, subProtocolTag,
+            btnSub, btnOpenSub, subHint,
+            outputSection, outputUrl, outputRemark,
+            btnCopy, btnDownload, btnDownloadB64
+        } = ids;
+        const bulkEnhance = enhanceBulk || ((line) => enhanceSingle(line, { ignoreServer: true }));
+        const URL_JOIN = urlJoin || '\n\n';
+        const SUB_JOIN = subJoin || '\n';
+        const REMARK_JOINER = remarkJoiner || ' · ';
+        let outputList = [];
+        let subRaw = [];
+        let lastSource = '';
+        let busy = false;
+        let progressTimer = null;
+        let renderTimer = null;
+        let lastAutoServerLocal = '';
+        let urlInputTimer = null;
+
+        function setTabSubError(text) {
+            subParsed.textContent = '';
+            const err = document.createElement('div');
+            err.className = 'error-msg';
+            err.textContent = '⚠️ ' + text;
+            subParsed.appendChild(err);
+        }
+
+        function showTabInfo(label, value) {
+            subParsed.textContent = '';
+            const row = document.createElement('div');
+            row.className = 'info-row';
+            const key = document.createElement('span');
+            key.className = 'info-label';
+            key.textContent = label;
+            const val = document.createElement('span');
+            val.className = 'info-value';
+            val.textContent = value;
+            row.append(key, val);
+            subParsed.appendChild(row);
+        }
+
+        function syncTabOpenButton() {
+            btnOpenSub.disabled = subValidate(subInput.value.trim()) !== 'link';
+        }
+
+        function onTabUrlInput() {
+            // URL edit invalidates shared output (ECH behavior) on BOTH tabs.
+            subRaw = [];
+            lastSource = '';
+            outputList = [];
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            const val = urlInput.value.trim();
+            const lines = extractLines(val);
+            let parsedList = [];
+            let unsupportedCount = 0;
+            let invalidCount = 0;
+            if (lines.length > 0) {
+                lines.forEach(line => {
+                    const p = parseProxyURLSingle(line);
+                    if (p && !p.error) {
+                        if (p.protocol === 'vless' || p.protocol === 'trojan') {
+                            parsedList.push(p);
+                        } else {
+                            unsupportedCount++;
+                        }
+                    } else {
+                        invalidCount++;
+                    }
+                });
+            }
+            if (parsedList.length === 1) {
+                const firstServer = parsedList[0].server || '';
+                const current = serverEl.value.trim();
+                if (!current || current === lastAutoServerLocal || current === firstServer) {
+                    serverEl.value = firstServer;
+                    lastAutoServerLocal = firstServer;
+                }
+            } else if (parsedList.length > 1) {
+                const current = serverEl.value.trim();
+                if (!current || current === lastAutoServerLocal) {
+                    serverEl.value = '';
+                    lastAutoServerLocal = '';
+                }
+            } else if (!serverEl.value.trim()) {
+                lastAutoServerLocal = '';
+            }
+            if (lines.length > 0) {
+                if (parsedList.length > 0) {
+                    renderParsedInfo(parsedList.length === 1 ? parsedList[0] : parsedList, urlParsed);
+                    const protocols = Array.from(new Set(parsedList.map(p => p.protocol)));
+                    if (protocols.length === 1) {
+                        updateProtocolTag(urlProtocolTag, parsedList[0]);
+                    } else {
+                        urlProtocolTag.textContent = 'MULTI';
+                        urlProtocolTag.classList.add('active');
+                        urlProtocolTag.style.color = '#7c5cff';
+                        urlProtocolTag.style.borderColor = '#7c5cff4d';
+                        urlProtocolTag.style.background = '#7c5cff1a';
+                    }
+                } else {
+                    renderParsedInfo({
+                        error: unsupportedCount > 0
+                            ? 'Only VLESS and Trojan URLs are supported'
+                            : 'Failed to parse URL'
+                    }, urlParsed);
+                    updateProtocolTag(urlProtocolTag, null);
+                }
+            } else {
+                renderParsedInfo(null, urlParsed);
+                updateProtocolTag(urlProtocolTag, null);
+            }
+            urlCard.classList.remove('valid', 'invalid');
+            if (lines.length > 0 && parsedList.length > 0) {
+                urlCard.classList.add('valid');
+            } else if (lines.length > 0) {
+                urlCard.classList.add('invalid');
+            }
+            const count = parsedList.length;
+            btnUrlEnhance.disabled = count === 0;
+            btnUrlEnhance.innerHTML = `<span class="btn-icon">✨</span> Enhance ${count > 1 ? count + ' URLs' : 'URL'}`;
+            urlHint.textContent = count > 0
+                ? `Ready to enhance ${count} URL${count > 1 ? 's' : ''}!`
+                : 'Paste VLESS or Trojan URL(s) above to enable';
+            urlHint.style.color = count > 0 ? '#4cdf86' : '';
+        }
+
+        function onTabUrlEnhance() {
+            const val = urlInput.value.trim();
+            const lines = extractLines(val);
+            if (lines.length === 0) {
+                outputSection.style.display = 'none';
+                return;
+            }
+            const enhancedUrls = [];
+            let firstEnhanced = null;
+            lines.forEach(line => {
+                const p = parseProxyURLSingle(line);
+                if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
+                    const res = enhanceSingle(line);
+                    if (res && res.url) {
+                        if (!firstEnhanced) firstEnhanced = p;
+                        enhancedUrls.push(res.url);
+                    }
+                }
+            });
+            if (enhancedUrls.length === 0) {
+                outputSection.style.display = 'none';
+                outputList = [];
+                urlHint.textContent = 'Could not enhance — check the URLs and the Server override';
+                urlHint.style.color = '#f05050';
+                return;
+            }
+            const count = enhancedUrls.length;
+            const firstParsed = firstEnhanced;
+            let remarkHost = firstParsed ? `${firstParsed.server}:${firstParsed.port}` : '';
+            try {
+                const firstOut = new URL(enhancedUrls[0]);
+                if (firstOut.hostname) remarkHost = firstOut.host;
+            } catch {
+                // keep the pre-enhance values
+            }
+            const remark = count === 1
+                ? (firstParsed && firstParsed.remark
+                    ? `✨ ${firstParsed.protocol.toUpperCase()} ${remarkHost} | enhanced`
+                    : '✨ Enhanced')
+                : `✨ Enhanced ${count} URLs`;
+            outputList = enhancedUrls;
+            outputRemark.textContent = remark;
+            outputUrl.textContent = enhancedUrls.join(URL_JOIN);
+            outputSection.style.display = 'block';
+            lastSource = 'url';
+            outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function scheduleTabUrlInput() {
+            if (!urlInput.value.trim()) {
+                clearTimeout(urlInputTimer);
+                urlInputTimer = null;
+                onTabUrlInput();
+                return;
+            }
+            clearTimeout(urlInputTimer);
+            urlInputTimer = setTimeout(() => {
+                urlInputTimer = null;
+                onTabUrlInput();
+            }, 150);
+        }
+
+        function onTabSubInput() {
+            const raw = subInput.value.trim();
+            if (busyGuardOnInput && busy) {
+                btnSub.disabled = true;
+                return;
+            }
+            subCard.classList.remove('valid', 'invalid');
+            if (showProtocolTag && subProtocolTag) {
+                subProtocolTag.classList.remove('active');
+                subProtocolTag.textContent = '—';
+            }
+            subRaw = [];
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            outputList = [];
+            subParsed.textContent = '';
+            subHint.style.color = '';
+            btnOpenSub.disabled = true;
+            if (!raw) {
+                btnSub.disabled = true;
+                btnOpenSub.disabled = true;
+                subHint.textContent = subCopy.empty;
+                return;
+            }
+            const mode = subValidate(raw);
+            if (mode === 'link') {
+                subCard.classList.add('valid');
+                if (showProtocolTag && subProtocolTag) {
+                    const u = new URL(raw);
+                    subProtocolTag.textContent = u.protocol.replace(':', '').toUpperCase() || 'HTTP';
+                    subProtocolTag.classList.add('active');
+                    showTabInfo('Host', u.hostname);
+                }
+                btnSub.disabled = false;
+                syncTabOpenButton();
+                subHint.textContent = subCopy.linkReady;
+                subHint.style.color = '#4cdf86';
+                return;
+            }
+            if (mode === 'content') {
+                subCard.classList.add('valid');
+                if (showProtocolTag && subProtocolTag) {
+                    subProtocolTag.textContent = 'CONTENT';
+                    subProtocolTag.classList.add('active');
+                    showTabInfo('Mode', 'Pasted content — nothing will be fetched');
+                }
+                btnSub.disabled = false;
+                syncTabOpenButton();
+                subHint.textContent = subCopy.contentReady;
+                subHint.style.color = '#4cdf86';
+                return;
+            }
+            if (mode === 'proxy') {
+                subCard.classList.add('invalid');
+                setTabSubError(subCopy.proxyError);
+                btnSub.disabled = true;
+                btnOpenSub.disabled = true;
+                subHint.textContent = subCopy.proxyHint;
+                return;
+            }
+            subCard.classList.add('invalid');
+            if (subCopy.invalidError) setTabSubError(subCopy.invalidError);
+            btnSub.disabled = true;
+            btnOpenSub.disabled = true;
+            subHint.textContent = subCopy.invalidHint;
+        }
+
+        function renderTabResults(configs, focus) {
+            let enhanced = [];
+            let skipped = 0;
+            let invalid = 0;
+            configs.forEach(line => {
+                if (!SUB_SCHEME.test(line)) {
+                    const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+                    if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
+                }
+                const p = parseProxyURLSingle(line);
+                if (!p || p.error) {
+                    invalid++;
+                    return;
+                }
+                if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
+                    skipped++;
+                    return;
+                }
+                const res = bulkEnhance(line);
+                if (res && res.url) {
+                    enhanced.push(res.url);
+                } else {
+                    // countRule fragment's skipped++ (never relabels
+                    // parsed-but-unenhanceable as unparseable); ECH's
+                    // invalid-if-scheme branch is deleted.
+                    skipped++;
+                }
+            });
+            if (enhanced.length === 0) {
+                outputSection.style.display = 'none';
+                outputList = [];
+                subHint.textContent = configs.length
+                    ? 'Found configs, but none were VLESS/Trojan with a usable URL'
+                    : 'No proxy configs found in the input';
+                subHint.style.color = '#f0c040';
+                subCard.classList.remove('valid');
+                subCard.classList.add('invalid');
+                setTabSubError(configs.length
+                    ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
+                    : failureCopy.noConfigs);
+                return;
+            }
+            outputList = enhanced;
+            subParsed.textContent = '';
+            subCard.classList.remove('invalid');
+            subCard.classList.add('valid');
+            const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
+            if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
+            if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
+            outputRemark.textContent = parts.join(REMARK_JOINER);
+            outputUrl.textContent = enhanced.join(SUB_JOIN);
+            outputSection.style.display = 'block';
+            lastSource = 'sub';
+            if (focus) outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            subHint.textContent = 'Done';
+            subHint.style.color = '#4cdf86';
+        }
+
+        function scheduleTabRender() {
+            if (busy || !subRaw.length || lastSource !== 'sub') return;
+            clearTimeout(renderTimer);
+            renderTimer = setTimeout(() => {
+                renderTimer = null;
+                if (busy || !subRaw.length || lastSource !== 'sub') return;
+                renderTabResults(subRaw, false);
+            }, 300);
+        }
+
+        function handleTabStale() {
+            subRaw = [];
+            onTabSubInput();
+            subHint.textContent = 'Input changed during the fetch — fetch again';
+            subHint.style.color = '#f0c040';
+        }
+
+        function onTabFetched(body, fetchRaw) {
+            if (!busy) return;
+            busy = false;
+            if (progressTimer) {
+                clearTimeout(progressTimer);
+                progressTimer = null;
+            }
+            if (renderTimer) {
+                clearTimeout(renderTimer);
+                renderTimer = null;
+            }
+            if (subInput.value.trim() !== fetchRaw) {
+                handleTabStale();
+                return;
+            }
+            btnSub.disabled = false;
+            syncTabOpenButton();
+            const configs = extractSubConfigs(body);
+            subRaw = configs;
+            renderTabResults(configs, true);
+        }
+
+        function onTabProgress(loaded, total) {
+            if (progressTimer) return;
+            progressTimer = setTimeout(() => {
+                progressTimer = null;
+                if (!busy) return;
+                const kb = Math.round(loaded / 1024);
+                subHint.textContent = total
+                    ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
+                    : 'Fetching… ' + kb + ' KB';
+            }, 150);
+        }
+
+        async function onTabSub() {
+            const raw = subInput.value.trim();
+            if (!raw || busy) return;
+            const mode = subValidate(raw);
+            if (!subCanRun(mode)) {
+                onTabSubInput();
+                return;
+            }
+            if (mode === 'content') {
+                subRaw = extractSubConfigs(raw);
+                renderTabResults(subRaw, true);
+                return;
+            }
+            busy = true;
+            btnSub.disabled = true;
+            btnOpenSub.disabled = true;
+            subHint.textContent = 'Fetching…';
+            subHint.style.color = '';
+            subParsed.textContent = '';
+            subCard.classList.remove('invalid');
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            outputList = [];
+            subRaw = [];
+            try {
+                const body = await fetchSubBody(raw, onTabProgress);
+                onTabFetched(body, raw);
+            } catch (e) {
+                busy = false;
+                if (progressTimer) {
+                    clearTimeout(progressTimer);
+                    progressTimer = null;
+                }
+                if (subInput.value.trim() !== raw) {
+                    handleTabStale();
+                    return;
+                }
+                btnSub.disabled = false;
+                syncTabOpenButton();
+                subHint.textContent = 'Fetch failed';
+                subHint.style.color = '#f05050';
+                subCard.classList.remove('valid');
+                subCard.classList.add('invalid');
+                setTabSubError(subErrorText(e));
+                syncTabOpenButton();
+                if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setTabCorsGuide(raw);
+            }
+        }
+
+        function setTabCorsGuide(linkUrl) {
+            const guide = document.createElement('div');
+            guide.className = 'sub-guide';
+            const title = document.createElement('div');
+            title.textContent = 'Get the content manually — 3 quick steps:';
+            const steps = document.createElement('ol');
+            const first = document.createElement('li');
+            first.textContent = 'Open your subscription link in a new tab: ';
+            const openBtn = document.createElement('button');
+            openBtn.type = 'button';
+            openBtn.className = 'btn-subtle';
+            openBtn.textContent = '↗ Open link';
+            openBtn.addEventListener('click', () => openSubLink(linkUrl));
+            first.appendChild(openBtn);
+            const second = document.createElement('li');
+            second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
+            const third = document.createElement('li');
+            third.textContent = corsGuideStep3;
+            steps.append(first, second, third);
+            guide.append(title, steps);
+            subParsed.appendChild(guide);
+        }
+
+        function onTabDropError(text) {
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            outputList = [];
+            subRaw = [];
+            onTabSubInput();
+            setTabSubError(text);
+            outputList = [];
+        }
+
+        function onTabDragOver(e) {
+            e.preventDefault();
+            subCard.classList.add('dragover');
+        }
+
+        function onTabDragLeave(e) {
+            e.preventDefault();
+            if (e.relatedTarget && subCard.contains(e.relatedTarget)) return;
+            subCard.classList.remove('dragover');
+        }
+
+        function onTabDrop(e) {
+            e.preventDefault();
+            subCard.classList.remove('dragover');
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (!file) return;
+            if (file.size > SUB_MAX_FILE_BYTES) {
+                onTabDropError(SUB_TOO_LARGE_MSG);
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+                subInput.value = String(reader.result || '');
+                onTabSubInput();
+                subInput.focus();
+            };
+            reader.onerror = () => onTabDropError('Could not read that file.');
+            reader.readAsText(file);
+        }
+
+        function onTabUrlDragOver(e) {
+            e.preventDefault();
+            urlCard.classList.add('dragover');
+        }
+
+        function onTabUrlDragLeave(e) {
+            e.preventDefault();
+            if (e.relatedTarget && urlCard.contains(e.relatedTarget)) return;
+            urlCard.classList.remove('dragover');
+        }
+
+        function onTabUrlDrop(e) {
+            dropTextFileOnto(e, urlCard, urlInput, onTabUrlInput, urlHint);
+        }
+
+        function wireTab() {
+            urlInput.addEventListener('input', scheduleTabUrlInput);
+            urlInput.addEventListener('paste', scheduleTabUrlInput);
+            if (urlClear) urlClear.addEventListener('click', () => {
+                urlInput.value = '';
+                onTabUrlInput();
+            });
+            urlCard.addEventListener('dragenter', onTabUrlDragOver);
+            urlCard.addEventListener('dragover', onTabUrlDragOver);
+            urlCard.addEventListener('dragleave', onTabUrlDragLeave);
+            urlCard.addEventListener('drop', onTabUrlDrop);
+            btnUrlEnhance.addEventListener('click', onTabUrlEnhance);
+            if (btnCopy) btnCopy.addEventListener('click', () => copyTextWithFeedback(btnCopy, outputUrl.textContent, copyHintEl || subHint));
+            subInput.addEventListener('input', onTabSubInput);
+            subInput.addEventListener('paste', () => setTimeout(onTabSubInput, 50));
+            if (subClear) subClear.addEventListener('click', () => {
+                subInput.value = '';
+                onTabSubInput();
+            });
+            btnSub.addEventListener('click', onTabSub);
+            btnOpenSub.addEventListener('click', () => {
+                const v = subInput.value.trim();
+                if (subValidate(v) === 'link') openSubLink(v);
+            });
+            subCard.addEventListener('dragenter', onTabDragOver);
+            subCard.addEventListener('dragover', onTabDragOver);
+            subCard.addEventListener('dragleave', onTabDragLeave);
+            subCard.addEventListener('drop', onTabDrop);
+            (optionWatch || []).forEach(pair => {
+                const el = pair.el || pair[0];
+                const ev = pair.event || pair[1];
+                if (el && ev) el.addEventListener(ev, scheduleTabRender);
+            });
+            if (btnDownload) btnDownload.addEventListener('click', () => {
+                if (!outputList.length) return;
+                downloadText(exportNames.txt, outputUrl.textContent + '\n');
+            });
+            if (btnDownloadB64) btnDownloadB64.addEventListener('click', () => {
+                if (!outputList.length) return;
+                downloadText(exportNames.b64, encodeUtf8ToB64(outputUrl.textContent));
+            });
+        }
+
+        return {
+            onTabUrlInput, onTabUrlEnhance, scheduleTabUrlInput,
+            onTabSubInput, renderTabResults, scheduleTabRender,
+            onTabSub, onTabFetched, handleTabStale, onTabProgress,
+            setTabCorsGuide, syncTabOpenButton, wireTab,
+            getState: () => ({ outputList, subRaw, lastSource, busy })
+        };
+    }
+
     subUrl.addEventListener('input', onSubInput);
     subClear.addEventListener('click', () => {
         subUrl.value = '';
