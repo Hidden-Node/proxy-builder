@@ -1534,6 +1534,7 @@
                         }]
                     }]
                 };
+                if (params.flow) outbound.settings.vnext[0].users[0].flow = params.flow;
                 break;
 
             case 'vmess':
@@ -2424,10 +2425,14 @@
         if (hasSSH) {
             tabXray.classList.add('disabled');
             tabXray.title = 'SSH is not supported by Xray';
+            btnCopyXray.disabled = true;
+            btnDownloadXray.disabled = true;
             switchTab('singbox');
         } else {
             tabXray.classList.remove('disabled');
             tabXray.title = '';
+            btnCopyXray.disabled = false;
+            btnDownloadXray.disabled = false;
         }
 
         // Generate Xray config (skip if SSH is involved)
@@ -2471,6 +2476,11 @@
 
     function doCopy(btn, configGenerator) {
         if (!parsedConfig1 || !parsedConfig2) return;
+        // Defense in depth: block Xray output for SSH configs even if the
+        // buttons are enabled. NOTE: the function-identity check breaks if a
+        // later plan wraps generators — prefer an explicit isXray boolean
+        // parameter then. Safe for now: plan 016 passes values, not wrappers.
+        if (configGenerator === generateFullConfig && (parsedConfig1?.protocol === 'ssh' || parsedConfig2?.protocol === 'ssh')) return;
         const result = configGenerator(parsedConfig1, parsedConfig2);
         if (!result) return;
 
@@ -2490,6 +2500,11 @@
 
     function doDownload(configGenerator, prefix) {
         if (!parsedConfig1 || !parsedConfig2) return;
+        // Defense in depth: block Xray output for SSH configs even if the
+        // buttons are enabled. NOTE: the function-identity check breaks if a
+        // later plan wraps generators — prefer an explicit isXray boolean
+        // parameter then. Safe for now: plan 016 passes values, not wrappers.
+        if (configGenerator === generateFullConfig && (parsedConfig1?.protocol === 'ssh' || parsedConfig2?.protocol === 'ssh')) return;
         const result = configGenerator(parsedConfig1, parsedConfig2);
         if (!result) return;
 
