@@ -1269,6 +1269,19 @@
     }
 
     function onGenerate() {
+        // Flush any debounced chain-input parse still waiting on its 150 ms
+        // timer, so a Generate click within the delay consumes the visible
+        // field contents, never stale parsedConfig1/2 (plan 027).
+        if (config1InputTimer) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }
+        if (config2InputTimer) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }
         if (!parsedConfig1 || !parsedConfig2) return;
 
         const hasSSH = parsedConfig1.protocol === 'ssh' || parsedConfig2.protocol === 'ssh';
@@ -2280,8 +2293,9 @@
     // keystroke re-parses and rebuilds the parsed-info panel, so the timer
     // coalesces bursts from large pastes — same shape as scheduleSubRender
     // (which uses 300 ms for option changes). An emptied field runs
-    // synchronously so button-disable feedback never lags a clear and
-    // parsedConfig1/2 can't go stale if Generate is clicked mid-delay.
+    // synchronously so button-disable feedback never lags a clear. Non-empty
+    // edits defer 150 ms; a Generate click inside that window is covered by
+    // the onGenerate flush (plan 027), which runs the pending parse first.
     // Paste shares this scheduler: paste fires both paste and input, and one
     // timer means one parse instead of two.
     let config1InputTimer = null;
