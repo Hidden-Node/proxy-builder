@@ -935,6 +935,487 @@ const ECH_PRESETS = {
     'ech-18': 'cloudflare-ech.com+udp://185.228.169.9'
 };
 
+// ===== Config Builders =====
+// Moved verbatim from script.js (DOM-free): Xray + sing-box outbound builders.
+// Shared via classic <script> global scope; Node tests import via module.exports.
+
+    function buildStreamSettings(params, isChain) {
+        const stream = {};
+        const netType = params.type || 'tcp';
+
+        // Network
+        stream.network = netType;
+
+        // Security
+        const security = params.security || 'none';
+        stream.security = security;
+
+        // Sockopt
+        if (isChain) {
+            stream.sockopt = {
+                domainStrategy: 'UseIPv4',
+                dialerProxy: 'proxy'
+            };
+        } else {
+            stream.sockopt = {
+                domainStrategy: 'UseIP'
+            };
+        }
+
+        // Transport settings — only add when there's actual content
+        switch (netType) {
+            case 'ws':
+                stream.wsSettings = {};
+                if (params.host) stream.wsSettings.host = params.host;
+                if (params.path) stream.wsSettings.path = params.path;
+                if (!params.host && !params.path) stream.wsSettings.path = '/';
+                break;
+
+            case 'grpc':
+                stream.grpcSettings = {};
+                if (params.authority) stream.grpcSettings.authority = params.authority;
+                if (params.mode) stream.grpcSettings.multiMode = params.mode === 'multi';
+                if (params.serviceName) stream.grpcSettings.serviceName = params.serviceName;
+                break;
+
+            case 'httpupgrade':
+                stream.httpupgradeSettings = {};
+                if (params.host) stream.httpupgradeSettings.host = params.host;
+                stream.httpupgradeSettings.path = params.path || '/';
+                break;
+
+            case 'tcp':
+            case 'raw':
+                // Only add rawSettings if headerType is 'http'
+                if (params.headerType === 'http') {
+                    stream.rawSettings = {
+                        header: {
+                            type: 'http',
+                            request: {
+                                headers: {},
+                                path: params.path ? params.path.split(',') : ['/'],
+                                method: 'GET',
+                                version: '1.1'
+                            }
+                        }
+                    };
+                    if (params.host) {
+                        stream.rawSettings.header.request.headers.Host = params.host.split(',');
+                    }
+                }
+                // For plain TCP (headerType=none), no rawSettings needed
+                break;
+        }
+
+        // TLS settings
+        if (security === 'tls') {
+            stream.tlsSettings = {
+                serverName: params.sni || params.server,
+                fingerprint: params.fp || 'chrome',
+                alpn: params.alpn ? params.alpn.split(',').map(s => s.trim()).filter(Boolean) : ['http/1.1'],
+                allowInsecure: !!params.allowInsecure
+            };
+            // ECH support
+            if (params.ech) {
+                stream.tlsSettings.echConfigList = params.ech;
+            }
+        } else if (security === 'reality') {
+            stream.realitySettings = {
+                serverName: params.sni || params.server,
+                fingerprint: params.fp || 'chrome',
+                publicKey: params.pbk || '',
+                shortId: params.sid || '',
+                spiderX: params.spx || '',
+                show: false,
+                allowInsecure: !!params.allowInsecure
+            };
+        }
+
+        return stream;
+    }
+
+    function buildProxyOutbound(params) {
+        const streamSettings = buildStreamSettings(params, false);
+        const outbound = {
+            protocol: params.protocol === 'shadowsocks' ? 'shadowsocks' : params.protocol,
+            tag: 'proxy'
+        };
+
+        switch (params.protocol) {
+            case 'vless':
+                outbound.settings = {
+                    vnext: [{
+                        address: params.server,
+                        port: params.port,
+                        users: [{
+                            id: params.uuid,
+                            encryption: params.encryption || 'none'
+                        }]
+                    }]
+                };
+                if (params.flow) outbound.settings.vnext[0].users[0].flow = params.flow;
+                break;
+
+            case 'vmess':
+                outbound.settings = {
+                    vnext: [{
+                        address: params.server,
+                        port: params.port,
+                        users: [{
+                            id: params.uuid,
+                            alterId: params.aid || 0,
+                            security: 'auto'
+                        }]
+                    }]
+                };
+                break;
+
+            case 'trojan':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port,
+                        password: params.password
+                    }]
+                };
+                break;
+
+            case 'shadowsocks':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port,
+                        method: params.method,
+                        password: params.password
+                    }]
+                };
+                break;
+
+            case 'socks':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port
+                    }]
+                };
+                // Xray requires both user and pass for authenticated SOCKS/HTTP.
+                // A user-only credential must not emit an empty password.
+                if (params.user && params.pass) {
+                    outbound.settings.servers[0].users = [{
+                        user: params.user,
+                        pass: params.pass
+                    }];
+                }
+                break;
+
+            case 'http':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port
+                    }]
+                };
+                // Xray requires both user and pass for authenticated SOCKS/HTTP.
+                // A user-only credential must not emit an empty password.
+                if (params.user && params.pass) {
+                    outbound.settings.servers[0].users = [{
+                        user: params.user,
+                        pass: params.pass
+                    }];
+                }
+                break;
+
+            default:
+                return null;
+        }
+
+        outbound.streamSettings = streamSettings;
+        return outbound;
+    }
+
+    function buildChainOutbound(params) {
+        const streamSettings = buildStreamSettings(params, true);
+        const outbound = {
+            protocol: params.protocol === 'shadowsocks' ? 'shadowsocks' : params.protocol,
+            tag: 'chain'
+        };
+
+        switch (params.protocol) {
+            case 'vless':
+                outbound.settings = {
+                    vnext: [{
+                        address: params.server,
+                        port: params.port,
+                        users: [{
+                            id: params.uuid,
+                            encryption: params.encryption || 'none'
+                        }]
+                    }]
+                };
+                if (params.flow) outbound.settings.vnext[0].users[0].flow = params.flow;
+                break;
+
+            case 'vmess':
+                outbound.settings = {
+                    vnext: [{
+                        address: params.server,
+                        port: params.port,
+                        users: [{
+                            id: params.uuid,
+                            alterId: params.aid || 0,
+                            security: 'auto'
+                        }]
+                    }]
+                };
+                break;
+
+            case 'trojan':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port,
+                        password: params.password
+                    }]
+                };
+                break;
+
+            case 'shadowsocks':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port,
+                        method: params.method,
+                        password: params.password
+                    }]
+                };
+                break;
+
+            case 'socks':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port
+                    }]
+                };
+                // Xray requires both user and pass for authenticated SOCKS/HTTP.
+                // A user-only credential must not emit an empty password.
+                if (params.user && params.pass) {
+                    outbound.settings.servers[0].users = [{
+                        user: params.user,
+                        pass: params.pass
+                    }];
+                }
+                break;
+
+            case 'http':
+                outbound.settings = {
+                    servers: [{
+                        address: params.server,
+                        port: params.port
+                    }]
+                };
+                // Xray requires both user and pass for authenticated SOCKS/HTTP.
+                // A user-only credential must not emit an empty password.
+                if (params.user && params.pass) {
+                    outbound.settings.servers[0].users = [{
+                        user: params.user,
+                        pass: params.pass
+                    }];
+                }
+                break;
+
+            default:
+                return null;
+        }
+
+        outbound.streamSettings = streamSettings;
+        return outbound;
+    }
+
+    function buildSingboxOutbound(params, tag, detourTag) {
+        const outbound = {
+            tag: tag,
+            type: params.protocol === 'shadowsocks' ? 'shadowsocks' : params.protocol
+        };
+
+        // If this is a chain outbound, set detour
+        if (detourTag) {
+            outbound.detour = detourTag;
+        }
+
+        outbound.server = params.server;
+        outbound.server_port = params.port;
+
+        // Protocol-specific settings
+        switch (params.protocol) {
+            case 'vless':
+                outbound.uuid = params.uuid;
+                outbound.packet_encoding = '';
+                outbound.network = 'tcp';
+                if (params.flow) outbound.flow = params.flow;
+                break;
+
+            case 'vmess':
+                outbound.uuid = params.uuid;
+                outbound.security = 'auto';
+                outbound.alter_id = params.aid || 0;
+                outbound.network = 'tcp';
+                break;
+
+            case 'trojan':
+                outbound.password = params.password;
+                outbound.network = 'tcp';
+                break;
+
+            case 'shadowsocks':
+                outbound.method = params.method;
+                outbound.password = params.password;
+                outbound.network = 'tcp';
+                break;
+
+            case 'socks':
+                outbound.version = '5';
+                outbound.network = 'tcp';
+                // Auth credentials are only emitted when both username and
+                // password are present, same as the Xray builder above.
+                // A user-only credential would produce a broken outbound.
+                if (params.user && params.pass) {
+                    outbound.username = params.user;
+                    outbound.password = params.pass;
+                }
+                break;
+
+            case 'http':
+                // Same rule as socks above: both username and password required.
+                if (params.user && params.pass) {
+                    outbound.username = params.user;
+                    outbound.password = params.pass;
+                }
+                break;
+
+            case 'ssh':
+                outbound.type = 'ssh';
+                outbound.user = params.user || 'root';
+                outbound.password = params.password;
+                // SSH has no TLS/transport, return early
+                return outbound;
+
+            default:
+                return outbound;
+        }
+
+        // TLS settings
+        const security = params.security || 'none';
+        if (security === 'tls' || security === 'reality') {
+            const tls = {
+                enabled: true,
+                server_name: params.sni || params.host || params.server
+            };
+
+            if (params.allowInsecure) tls.insecure = true;
+
+            // ALPN
+            if (params.alpn) {
+                const alpnList = params.alpn.split(',').map(s => s.trim()).filter(Boolean);
+                if (alpnList.length) tls.alpn = alpnList;
+            }
+
+            // uTLS fingerprint
+            if (params.fp) {
+                tls.utls = {
+                    enabled: true,
+                    fingerprint: params.fp
+                };
+            }
+
+            // Reality
+            if (security === 'reality' && params.pbk) {
+                tls.reality = {
+                    enabled: true,
+                    public_key: params.pbk,
+                    short_id: params.sid || ''
+                };
+            }
+
+            // ECH — param format: "query_server_name+dns_server" e.g. "workers.dev+udp://8.8.8.8"
+            if (params.ech) {
+                const echQueryServer = getEchQueryServer(params.ech);
+                tls.record_fragment = false;
+                tls.ech = {
+                    enabled: true,
+                    query_server_name: echQueryServer || params.sni || params.server
+                };
+            }
+
+            outbound.tls = tls;
+        }
+
+        // Transport settings
+        const transportType = params.type || 'tcp';
+        switch (transportType) {
+            case 'ws': {
+                const wsTransport = {
+                    type: 'ws',
+                    path: (params.path || '/').split('?ed=')[0],
+                    headers: {}
+                };
+                if (params.host) wsTransport.headers.Host = params.host;
+
+                // Early data from ?ed= in path
+                const edMatch = (params.path || '').match(/[?&]ed=(\d+)/);
+                if (edMatch) {
+                    wsTransport.max_early_data = parseInt(edMatch[1]);
+                    wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+                }
+                outbound.transport = wsTransport;
+                break;
+            }
+
+            case 'grpc': {
+                outbound.transport = {
+                    type: 'grpc',
+                    service_name: params.serviceName || ''
+                };
+                break;
+            }
+
+            case 'httpupgrade': {
+                outbound.transport = {
+                    type: 'httpupgrade',
+                    host: params.host,
+                    path: (params.path || '/').split('?ed=')[0]
+                };
+                break;
+            }
+
+            case 'tcp': {
+                if (params.headerType === 'http') {
+                    outbound.transport = {
+                        type: 'http',
+                        host: params.host ? params.host.split(',') : undefined,
+                        path: params.path || '/',
+                        method: 'GET',
+                        headers: {
+                            'Connection': ['keep-alive'],
+                            'Content-Type': ['application/octet-stream']
+                        }
+                    };
+                }
+                break;
+            }
+
+            case 'raw': {
+                // raw = tcp without header in Sing-box
+                break;
+            }
+        }
+
+        // Enable TCP fast open if available
+        if (params.tfo) outbound.tcp_fast_open = true;
+
+        return outbound;
+    }
+
 // Node test harness: browsers ignore this block (`module` is undefined there).
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -943,6 +1424,7 @@ if (typeof module !== 'undefined' && module.exports) {
         ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
         enhanceUrlCore, enhanceEchUrlCore,
         parseProxyURLSingle, parseProxyURL, parseVless, parseVmess, parseTrojan, parseShadowsocks, parseSocks, parseHttp,
+        buildStreamSettings, buildProxyOutbound, buildChainOutbound, buildSingboxOutbound,
         maskString, truncateStr,
         subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate,
         SUB_IDLE_MS, SUB_TOTAL_MS, SUB_TOO_LARGE_MSG,

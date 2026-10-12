@@ -14,6 +14,7 @@ const {
     extractSubConfigs, subIsBlockedError, subErrorText,
     parseProxyURLSingle, parseProxyURL, parseVless, parseVmess,
     parseTrojan, parseShadowsocks, parseSocks, parseHttp,
+    buildStreamSettings, buildProxyOutbound, buildChainOutbound, buildSingboxOutbound,
     maskString, truncateStr
 } = pure;
 
@@ -848,5 +849,680 @@ describe('026 parity (7) CORS step-3', () => {
         assert.notEqual(fragStep3, echStep3);
         assert.match(echStep3, /Fetch & Enhance Sub/);
         assert.doesNotMatch(fragStep3, /Fetch & Enhance Sub/);
+    });
+});
+
+// ===== Config-builder goldens (plan 016) =====
+// Locked against the verbatim move from script.js: every case asserts the
+// FULL returned object, so a renamed key, changed default or dropped branch
+// fails loudly. Inputs are small and focused, not whole app configs.
+// FIXED (trim+h2) — goldens below assert the NEW behavior:
+// - Both alpn splits now trim entries: 'h2, http/1.1' -> ['h2', 'http/1.1'].
+// - sing-box no longer drops 'h2' (Xray's own default ALPN is
+//   ["h2", "http/1.1"]; no documented reason for the exclusion was found).
+//   NOTE: re-enabling h2 changes the observable TLS fingerprint of
+//   generated sing-box configs — operator-signed-off 2026-10-12.
+// - sing-box vless always emits packet_encoding: ''.
+// - Empty alpn defaults to ['http/1.1'] in Xray but omits tls.alpn in sing-box.
+// - listen_port follows socks-port (||10808 fallback) / log mapping / remote-dns live in the DOM-bound
+//   generate* wrappers, not in these builders — untouched here.
+
+const VLESS_WS_TLS = {
+    protocol: 'vless', uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    server: 'example.com', port: 443, encryption: 'none',
+    type: 'ws', host: 'h.example.com', path: '/path',
+    security: 'tls', sni: 'example.com', fp: 'chrome', alpn: 'h2,http/1.1'
+};
+
+const VLESS_REALITY_TCP_HTTP = {
+    protocol: 'vless', uuid: 'u1', server: 'r.example.com', port: 443,
+    type: 'tcp', headerType: 'http', host: 'h.example.com', path: '/a,/b',
+    security: 'reality', sni: 'r.example.com', fp: 'chrome',
+    pbk: 'PUBKEY', sid: 'SHORT', spx: '/spider'
+};
+
+const TROJAN_GRPC_TLS = {
+    protocol: 'trojan', password: 'pw', server: 't.example.com', port: 443,
+    type: 'grpc', serviceName: 'svc', authority: 'auth.example.com', mode: 'multi',
+    security: 'tls', sni: 't.example.com', fp: 'firefox', alpn: 'http/1.1'
+};
+
+const VLESS_FLOW_REALITY = {
+    protocol: 'vless', uuid: 'u1', server: 'f.example.com', port: 443,
+    type: 'tcp', security: 'reality', sni: 'f.example.com',
+    flow: 'xtls-rprx-vision', encryption: 'none'
+};
+
+const VLESS_ECH_WS = {
+    protocol: 'vless', uuid: 'u1', server: 'e.example.com', port: 443,
+    type: 'ws', path: '/', security: 'tls', sni: 'e.example.com',
+    ech: 'cloudflare-ech.com+udp://1.1.1.1'
+};
+
+describe('buildStreamSettings', () => {
+    it('vless ws/tls golden', () => {
+        assert.deepEqual(buildStreamSettings(VLESS_WS_TLS, false), {
+            network: 'ws',
+            security: 'tls',
+            sockopt: { domainStrategy: 'UseIP' },
+            wsSettings: { host: 'h.example.com', path: '/path' },
+            tlsSettings: {
+                serverName: 'example.com',
+                fingerprint: 'chrome',
+                alpn: ['h2', 'http/1.1'],
+                allowInsecure: false
+            }
+        });
+    });
+
+    it('vless reality tcp with http header uses chain sockopt', () => {
+        assert.deepEqual(buildStreamSettings(VLESS_REALITY_TCP_HTTP, true), {
+            network: 'tcp',
+            security: 'reality',
+            sockopt: { domainStrategy: 'UseIPv4', dialerProxy: 'proxy' },
+            rawSettings: {
+                header: {
+                    type: 'http',
+                    request: {
+                        headers: { Host: ['h.example.com'] },
+                        path: ['/a', '/b'],
+                        method: 'GET',
+                        version: '1.1'
+                    }
+                }
+            },
+            realitySettings: {
+                serverName: 'r.example.com',
+                fingerprint: 'chrome',
+                publicKey: 'PUBKEY',
+                shortId: 'SHORT',
+                spiderX: '/spider',
+                show: false,
+                allowInsecure: false
+            }
+        });
+    });
+
+    it('trojan grpc/tls golden', () => {
+        assert.deepEqual(buildStreamSettings(TROJAN_GRPC_TLS, false), {
+            network: 'grpc',
+            security: 'tls',
+            sockopt: { domainStrategy: 'UseIP' },
+            grpcSettings: {
+                authority: 'auth.example.com',
+                multiMode: true,
+                serviceName: 'svc'
+            },
+            tlsSettings: {
+                serverName: 't.example.com',
+                fingerprint: 'firefox',
+                alpn: ['http/1.1'],
+                allowInsecure: false
+            }
+        });
+    });
+
+    it('httpupgrade/tls golden', () => {
+        assert.deepEqual(buildStreamSettings({
+            protocol: 'vless', uuid: 'u1', server: 'hu.example.com', port: 443,
+            type: 'httpupgrade', host: 'hu.example.com', path: '/up',
+            security: 'tls', sni: 'hu.example.com', fp: 'chrome'
+        }, false), {
+            network: 'httpupgrade',
+            security: 'tls',
+            sockopt: { domainStrategy: 'UseIP' },
+            httpupgradeSettings: { host: 'hu.example.com', path: '/up' },
+            tlsSettings: {
+                serverName: 'hu.example.com',
+                fingerprint: 'chrome',
+                alpn: ['http/1.1'],
+                allowInsecure: false
+            }
+        });
+    });
+
+    it('tcp/none emits no transport or tls keys', () => {
+        assert.deepEqual(buildStreamSettings({
+            protocol: 'vless', uuid: 'u1', server: 'p.example.com', port: 80,
+            type: 'tcp', headerType: 'none', security: 'none'
+        }, false), {
+            network: 'tcp',
+            security: 'none',
+            sockopt: { domainStrategy: 'UseIP' }
+        });
+    });
+
+    it('spaced alpn is trimmed', () => {
+        const out = buildStreamSettings({
+            protocol: 'vless', uuid: 'u1', server: 'a.example.com', port: 443,
+            type: 'ws', path: '/', security: 'tls', sni: 'a.example.com',
+            alpn: 'h2, http/1.1'
+        }, false);
+        assert.deepEqual(out.tlsSettings.alpn, ['h2', 'http/1.1']);
+    });
+
+    it('missing alpn defaults to http/1.1', () => {
+        const out = buildStreamSettings({
+            protocol: 'vless', uuid: 'u1', server: 'e.example.com', port: 443,
+            type: 'ws', path: '/', security: 'tls', sni: 'e.example.com'
+        }, false);
+        assert.deepEqual(out.tlsSettings.alpn, ['http/1.1']);
+    });
+
+    it('ech passes through verbatim into tlsSettings.echConfigList', () => {
+        const out = buildStreamSettings(VLESS_ECH_WS, false);
+        assert.equal(out.tlsSettings.echConfigList, 'cloudflare-ech.com+udp://1.1.1.1');
+        assert.deepEqual(out.tlsSettings.alpn, ['http/1.1']);
+    });
+});
+
+describe('buildProxyOutbound', () => {
+    it('vless flow golden (post-012 flow presence)', () => {
+        assert.deepEqual(buildProxyOutbound(VLESS_FLOW_REALITY), {
+            protocol: 'vless',
+            tag: 'proxy',
+            settings: {
+                vnext: [{
+                    address: 'f.example.com',
+                    port: 443,
+                    users: [{ id: 'u1', encryption: 'none', flow: 'xtls-rprx-vision' }]
+                }]
+            },
+            streamSettings: {
+                network: 'tcp',
+                security: 'reality',
+                sockopt: { domainStrategy: 'UseIP' },
+                realitySettings: {
+                    serverName: 'f.example.com',
+                    fingerprint: 'chrome',
+                    publicKey: '',
+                    shortId: '',
+                    spiderX: '',
+                    show: false,
+                    allowInsecure: false
+                }
+            }
+        });
+    });
+
+    it('ech-bearing vless passes echConfigList through verbatim', () => {
+        const out = buildProxyOutbound(VLESS_ECH_WS);
+        assert.equal(out.streamSettings.tlsSettings.echConfigList, 'cloudflare-ech.com+udp://1.1.1.1');
+        assert.deepEqual(out, {
+            protocol: 'vless',
+            tag: 'proxy',
+            settings: {
+                vnext: [{
+                    address: 'e.example.com',
+                    port: 443,
+                    users: [{ id: 'u1', encryption: 'none' }]
+                }]
+            },
+            streamSettings: {
+                network: 'ws',
+                security: 'tls',
+                sockopt: { domainStrategy: 'UseIP' },
+                wsSettings: { path: '/' },
+                tlsSettings: {
+                    serverName: 'e.example.com',
+                    fingerprint: 'chrome',
+                    alpn: ['http/1.1'],
+                    allowInsecure: false,
+                    echConfigList: 'cloudflare-ech.com+udp://1.1.1.1'
+                }
+            }
+        });
+    });
+
+    it('vmess golden', () => {
+        assert.deepEqual(buildProxyOutbound({
+            protocol: 'vmess', uuid: 'uuid-x', server: 'm.example.com', port: 443,
+            aid: 0, type: 'ws', host: 'h', path: '/p',
+            security: 'tls', sni: 'm.example.com'
+        }), {
+            protocol: 'vmess',
+            tag: 'proxy',
+            settings: {
+                vnext: [{
+                    address: 'm.example.com',
+                    port: 443,
+                    users: [{ id: 'uuid-x', alterId: 0, security: 'auto' }]
+                }]
+            },
+            streamSettings: {
+                network: 'ws',
+                security: 'tls',
+                sockopt: { domainStrategy: 'UseIP' },
+                wsSettings: { host: 'h', path: '/p' },
+                tlsSettings: {
+                    serverName: 'm.example.com',
+                    fingerprint: 'chrome',
+                    alpn: ['http/1.1'],
+                    allowInsecure: false
+                }
+            }
+        });
+    });
+
+    it('trojan grpc golden', () => {
+        assert.deepEqual(buildProxyOutbound(TROJAN_GRPC_TLS), {
+            protocol: 'trojan',
+            tag: 'proxy',
+            settings: {
+                servers: [{ address: 't.example.com', port: 443, password: 'pw' }]
+            },
+            streamSettings: {
+                network: 'grpc',
+                security: 'tls',
+                sockopt: { domainStrategy: 'UseIP' },
+                grpcSettings: {
+                    authority: 'auth.example.com',
+                    multiMode: true,
+                    serviceName: 'svc'
+                },
+                tlsSettings: {
+                    serverName: 't.example.com',
+                    fingerprint: 'firefox',
+                    alpn: ['http/1.1'],
+                    allowInsecure: false
+                }
+            }
+        });
+    });
+
+    it('shadowsocks golden', () => {
+        assert.deepEqual(buildProxyOutbound({
+            protocol: 'shadowsocks', method: 'aes-256-gcm', password: 'mypass',
+            server: 'ss.example.com', port: 8388
+        }), {
+            protocol: 'shadowsocks',
+            tag: 'proxy',
+            settings: {
+                servers: [{
+                    address: 'ss.example.com', port: 8388,
+                    method: 'aes-256-gcm', password: 'mypass'
+                }]
+            },
+            streamSettings: {
+                network: 'tcp',
+                security: 'none',
+                sockopt: { domainStrategy: 'UseIP' }
+            }
+        });
+    });
+
+    it('socks with credentials emits users', () => {
+        assert.deepEqual(buildProxyOutbound({
+            protocol: 'socks', server: 's.example.com', port: 1080, user: 'u', pass: 'pw'
+        }), {
+            protocol: 'socks',
+            tag: 'proxy',
+            settings: {
+                servers: [{
+                    address: 's.example.com', port: 1080,
+                    users: [{ user: 'u', pass: 'pw' }]
+                }]
+            },
+            streamSettings: {
+                network: 'tcp',
+                security: 'none',
+                sockopt: { domainStrategy: 'UseIP' }
+            }
+        });
+    });
+
+    it('socks user-only emits no users key', () => {
+        const out = buildProxyOutbound({
+            protocol: 'socks', server: 's.example.com', port: 1080, user: 'u'
+        });
+        assert.deepEqual(out.settings.servers, [{ address: 's.example.com', port: 1080 }]);
+    });
+
+    it('http with credentials emits users', () => {
+        assert.deepEqual(buildProxyOutbound({
+            protocol: 'http', server: 'h.example.com', port: 8080, user: 'u', pass: 'pw'
+        }), {
+            protocol: 'http',
+            tag: 'proxy',
+            settings: {
+                servers: [{
+                    address: 'h.example.com', port: 8080,
+                    users: [{ user: 'u', pass: 'pw' }]
+                }]
+            },
+            streamSettings: {
+                network: 'tcp',
+                security: 'none',
+                sockopt: { domainStrategy: 'UseIP' }
+            }
+        });
+    });
+
+    it('http without credentials emits a bare server', () => {
+        const out = buildProxyOutbound({
+            protocol: 'http', server: 'h.example.com', port: 8080
+        });
+        assert.deepEqual(out.settings.servers, [{ address: 'h.example.com', port: 8080 }]);
+    });
+
+    it('unknown protocol returns null', () => {
+        assert.equal(buildProxyOutbound({ protocol: 'wireguard', server: 'x', port: 1 }), null);
+    });
+});
+
+describe('buildChainOutbound', () => {
+    it('vless flow golden with chain sockopt (post-012 flow presence)', () => {
+        assert.deepEqual(buildChainOutbound(VLESS_FLOW_REALITY), {
+            protocol: 'vless',
+            tag: 'chain',
+            settings: {
+                vnext: [{
+                    address: 'f.example.com',
+                    port: 443,
+                    users: [{ id: 'u1', encryption: 'none', flow: 'xtls-rprx-vision' }]
+                }]
+            },
+            streamSettings: {
+                network: 'tcp',
+                security: 'reality',
+                sockopt: { domainStrategy: 'UseIPv4', dialerProxy: 'proxy' },
+                realitySettings: {
+                    serverName: 'f.example.com',
+                    fingerprint: 'chrome',
+                    publicKey: '',
+                    shortId: '',
+                    spiderX: '',
+                    show: false,
+                    allowInsecure: false
+                }
+            }
+        });
+    });
+
+    it('socks with credentials uses chain sockopt', () => {
+        assert.deepEqual(buildChainOutbound({
+            protocol: 'socks', server: 's.example.com', port: 1080, user: 'u', pass: 'pw'
+        }), {
+            protocol: 'socks',
+            tag: 'chain',
+            settings: {
+                servers: [{
+                    address: 's.example.com', port: 1080,
+                    users: [{ user: 'u', pass: 'pw' }]
+                }]
+            },
+            streamSettings: {
+                network: 'tcp',
+                security: 'none',
+                sockopt: { domainStrategy: 'UseIPv4', dialerProxy: 'proxy' }
+            }
+        });
+    });
+
+    it('unknown protocol returns null', () => {
+        assert.equal(buildChainOutbound({ protocol: 'nope', server: 'x', port: 1 }), null);
+    });
+});
+
+describe('buildSingboxOutbound', () => {
+    it('vless ws/tls golden (h2 kept, empty packet_encoding)', () => {
+        assert.deepEqual(buildSingboxOutbound(VLESS_WS_TLS, 'proxy', null), {
+            tag: 'proxy',
+            type: 'vless',
+            server: 'example.com',
+            server_port: 443,
+            uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+            packet_encoding: '',
+            network: 'tcp',
+            tls: {
+                enabled: true,
+                server_name: 'example.com',
+                alpn: ['h2', 'http/1.1'],
+                utls: { enabled: true, fingerprint: 'chrome' }
+            },
+            transport: {
+                type: 'ws',
+                path: '/path',
+                headers: { Host: 'h.example.com' }
+            }
+        });
+    });
+
+    it('spaced alpn is trimmed and h2 kept', () => {
+        const out = buildSingboxOutbound({
+            protocol: 'vless', uuid: 'u1', server: 'a.example.com', port: 443,
+            type: 'ws', path: '/', security: 'tls', sni: 'a.example.com',
+            alpn: 'h2, http/1.1'
+        }, 'proxy', null);
+        assert.deepEqual(out.tls.alpn, ['h2', 'http/1.1']);
+    });
+
+    it('missing alpn omits tls.alpn (asymmetry with Xray, recorded)', () => {
+        const out = buildSingboxOutbound({
+            protocol: 'vless', uuid: 'u1', server: 'd.example.com', port: 443,
+            type: 'ws', path: '/', security: 'tls', sni: 'd.example.com'
+        }, 'proxy', null);
+        assert.ok(!('alpn' in out.tls));
+        assert.deepEqual(out, {
+            tag: 'proxy',
+            type: 'vless',
+            server: 'd.example.com',
+            server_port: 443,
+            uuid: 'u1',
+            packet_encoding: '',
+            network: 'tcp',
+            tls: { enabled: true, server_name: 'd.example.com' },
+            transport: { type: 'ws', path: '/', headers: {} }
+        });
+    });
+
+    it('vless reality+flow with detour golden', () => {
+        assert.deepEqual(buildSingboxOutbound(VLESS_FLOW_REALITY, 'chain', 'proxy'), {
+            tag: 'chain',
+            type: 'vless',
+            detour: 'proxy',
+            server: 'f.example.com',
+            server_port: 443,
+            uuid: 'u1',
+            packet_encoding: '',
+            network: 'tcp',
+            flow: 'xtls-rprx-vision',
+            tls: { enabled: true, server_name: 'f.example.com' }
+        });
+    });
+
+    it('reality with pbk emits the reality block', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'vless', uuid: 'u1', server: 'r.example.com', port: 443,
+            type: 'tcp', security: 'reality', sni: 'r.example.com',
+            fp: 'chrome', pbk: 'PUBKEY', sid: 'SHORT'
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'vless',
+            server: 'r.example.com',
+            server_port: 443,
+            uuid: 'u1',
+            packet_encoding: '',
+            network: 'tcp',
+            tls: {
+                enabled: true,
+                server_name: 'r.example.com',
+                utls: { enabled: true, fingerprint: 'chrome' },
+                reality: { enabled: true, public_key: 'PUBKEY', short_id: 'SHORT' }
+            }
+        });
+    });
+
+    it('trojan grpc with detour golden', () => {
+        assert.deepEqual(buildSingboxOutbound(TROJAN_GRPC_TLS, 'proxy', 'hop-1'), {
+            tag: 'proxy',
+            type: 'trojan',
+            detour: 'hop-1',
+            server: 't.example.com',
+            server_port: 443,
+            password: 'pw',
+            network: 'tcp',
+            tls: {
+                enabled: true,
+                server_name: 't.example.com',
+                alpn: ['http/1.1'],
+                utls: { enabled: true, fingerprint: 'firefox' }
+            },
+            transport: { type: 'grpc', service_name: 'svc' }
+        });
+    });
+
+    it('vmess golden', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'vmess', uuid: 'uuid-x', server: 'm.example.com', port: 443,
+            type: 'tcp', security: 'none'
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'vmess',
+            server: 'm.example.com',
+            server_port: 443,
+            uuid: 'uuid-x',
+            security: 'auto',
+            alter_id: 0,
+            network: 'tcp'
+        });
+    });
+
+    it('shadowsocks golden', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'shadowsocks', method: 'aes-256-gcm', password: 'mypass',
+            server: 'ss.example.com', port: 8388
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'shadowsocks',
+            server: 'ss.example.com',
+            server_port: 8388,
+            method: 'aes-256-gcm',
+            password: 'mypass',
+            network: 'tcp'
+        });
+    });
+
+    it('socks with credentials golden', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'socks', server: 's.example.com', port: 1080, user: 'u', pass: 'pw'
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'socks',
+            server: 's.example.com',
+            server_port: 1080,
+            version: '5',
+            network: 'tcp',
+            username: 'u',
+            password: 'pw'
+        });
+    });
+
+    it('socks user-only emits no username', () => {
+        const out = buildSingboxOutbound({
+            protocol: 'socks', server: 's.example.com', port: 1080, user: 'u'
+        }, 'proxy', null);
+        assert.ok(!('username' in out));
+        assert.ok(!('password' in out));
+    });
+
+    it('http with credentials golden', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'http', server: 'h.example.com', port: 8080, user: 'u', pass: 'pw'
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'http',
+            server: 'h.example.com',
+            server_port: 8080,
+            username: 'u',
+            password: 'pw'
+        });
+    });
+
+    it('http without credentials emits a bare outbound', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'http', server: 'h.example.com', port: 8080
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'http',
+            server: 'h.example.com',
+            server_port: 8080
+        });
+    });
+
+    it('ssh returns early with no tls or transport keys', () => {
+        const out = buildSingboxOutbound({
+            protocol: 'ssh', server: 'ssh.example.com', port: 22,
+            user: 'root', password: 'secret'
+        }, 'proxy', null);
+        assert.deepEqual(out, {
+            tag: 'proxy',
+            type: 'ssh',
+            server: 'ssh.example.com',
+            server_port: 22,
+            user: 'root',
+            password: 'secret'
+        });
+        assert.ok(!('tls' in out));
+        assert.ok(!('transport' in out));
+    });
+
+    it('ech maps to query_server_name', () => {
+        const out = buildSingboxOutbound(VLESS_ECH_WS, 'proxy', null);
+        assert.deepEqual(out.tls.ech, { enabled: true, query_server_name: 'cloudflare-ech.com' });
+        assert.equal(out.tls.record_fragment, false);
+    });
+
+    it('httpupgrade transport golden', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'vless', uuid: 'u1', server: 'hu.example.com', port: 443,
+            type: 'httpupgrade', host: 'hu.example.com', path: '/up',
+            security: 'tls', sni: 'hu.example.com'
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'vless',
+            server: 'hu.example.com',
+            server_port: 443,
+            uuid: 'u1',
+            packet_encoding: '',
+            network: 'tcp',
+            tls: { enabled: true, server_name: 'hu.example.com' },
+            transport: { type: 'httpupgrade', host: 'hu.example.com', path: '/up' }
+        });
+    });
+
+    it('ws early-data from ?ed= golden', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'vless', uuid: 'u1', server: 'w.example.com', port: 443,
+            type: 'ws', host: 'w.example.com', path: '/path?ed=2048',
+            security: 'tls', sni: 'w.example.com'
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'vless',
+            server: 'w.example.com',
+            server_port: 443,
+            uuid: 'u1',
+            packet_encoding: '',
+            network: 'tcp',
+            tls: { enabled: true, server_name: 'w.example.com' },
+            transport: {
+                type: 'ws',
+                path: '/path',
+                headers: { Host: 'w.example.com' },
+                max_early_data: 2048,
+                early_data_header_name: 'Sec-WebSocket-Protocol'
+            }
+        });
+    });
+
+    it('unknown protocol returns a bare outbound (no null)', () => {
+        assert.deepEqual(buildSingboxOutbound({
+            protocol: 'wireguard', server: 'x.example.com', port: 51820
+        }, 'proxy', null), {
+            tag: 'proxy',
+            type: 'wireguard',
+            server: 'x.example.com',
+            server_port: 51820
+        });
     });
 });
