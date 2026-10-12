@@ -1440,6 +1440,11 @@
                 loaded += value.length;
                 if (loaded > SUB_MAX_FILE_BYTES) {
                     try { await reader.cancel(); } catch (_) {}
+                    // Deterministic teardown: releasing the reader does not
+                    // always close the connection, so abort it too — a >2 MiB
+                    // hostile body cannot linger. Reason keeps this distinct
+                    // from the total-timeout path in catch below (plan 031).
+                    ctrl.abort('over-budget');
                     throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
                 }
                 onProgress(loaded, total);
