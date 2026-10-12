@@ -1316,7 +1316,7 @@ const ECH_PRESETS = {
 
             // ALPN
             if (params.alpn) {
-                const alpnList = params.alpn.split(',').map(s => s.trim()).filter(v => v && v !== 'h2');
+                const alpnList = params.alpn.split(',').map(s => s.trim()).filter(Boolean);
                 if (alpnList.length) tls.alpn = alpnList;
             }
 

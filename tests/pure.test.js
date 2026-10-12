@@ -850,9 +850,12 @@ describe('026 parity (7) CORS step-3', () => {
 // Locked against the verbatim move from script.js: every case asserts the
 // FULL returned object, so a renamed key, changed default or dropped branch
 // fails loudly. Inputs are small and focused, not whole app configs.
-// FIXED (trim) — goldens below assert the NEW behavior:
-// - Both alpn splits now trim entries: 'h2, http/1.1' -> Xray ['h2', 'http/1.1'], sing-box ['http/1.1'] (h2 still dropped).
-// - sing-box alpn split still drops every 'h2' entry (h2 keep is Step 5, operator-signed-off).
+// FIXED (trim+h2) — goldens below assert the NEW behavior:
+// - Both alpn splits now trim entries: 'h2, http/1.1' -> ['h2', 'http/1.1'].
+// - sing-box no longer drops 'h2' (Xray's own default ALPN is
+//   ["h2", "http/1.1"]; no documented reason for the exclusion was found).
+//   NOTE: re-enabling h2 changes the observable TLS fingerprint of
+//   generated sing-box configs — operator-signed-off 2026-10-12.
 // - sing-box vless always emits packet_encoding: ''.
 // - Empty alpn defaults to ['http/1.1'] in Xray but omits tls.alpn in sing-box.
 // - listen_port follows socks-port (||10808 fallback) / log mapping / remote-dns live in the DOM-bound
@@ -1256,7 +1259,7 @@ describe('buildChainOutbound', () => {
 });
 
 describe('buildSingboxOutbound', () => {
-    it('vless ws/tls golden (h2 dropped, empty packet_encoding)', () => {
+    it('vless ws/tls golden (h2 kept, empty packet_encoding)', () => {
         assert.deepEqual(buildSingboxOutbound(VLESS_WS_TLS, 'proxy', null), {
             tag: 'proxy',
             type: 'vless',
@@ -1268,7 +1271,7 @@ describe('buildSingboxOutbound', () => {
             tls: {
                 enabled: true,
                 server_name: 'example.com',
-                alpn: ['http/1.1'],
+                alpn: ['h2', 'http/1.1'],
                 utls: { enabled: true, fingerprint: 'chrome' }
             },
             transport: {
@@ -1279,13 +1282,13 @@ describe('buildSingboxOutbound', () => {
         });
     });
 
-    it('spaced alpn is trimmed but h2 still dropped (pre-sign-off lock)', () => {
+    it('spaced alpn is trimmed and h2 kept', () => {
         const out = buildSingboxOutbound({
             protocol: 'vless', uuid: 'u1', server: 'a.example.com', port: 443,
             type: 'ws', path: '/', security: 'tls', sni: 'a.example.com',
             alpn: 'h2, http/1.1'
         }, 'proxy', null);
-        assert.deepEqual(out.tls.alpn, ['http/1.1']);
+        assert.deepEqual(out.tls.alpn, ['h2', 'http/1.1']);
     });
 
     it('missing alpn omits tls.alpn (asymmetry with Xray, recorded)', () => {
