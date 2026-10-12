@@ -6,7 +6,7 @@
 ## 1. What this is
 
 Zero-dependency static app: `index.html` + `script.js` + `style.css` +
-`pure.js`. No `package.json` (until plan 021 lands), no build step, no
+`pure.js`. No `package.json`, no build step, no
 framework. Classic `<script>` global scope; `pure.js` loads first
 (`index.html:791` before `index.html:792`).
 
@@ -30,7 +30,7 @@ Browser matrix (human): open `index.html` via `file://`, exercise the
 touched tab(s). Live-browser console checks may be skipped only with a
 documented static-trace substitution (precedent: plans 002/004).
 
-`Copied!` grep gate stays at 2 until plan 018 lands (then 1) — plan 018
+`Copied!` grep gate stays at 1 — plan 018
 moves the success morph into the shared helper.
 
 ## 3. Where code goes

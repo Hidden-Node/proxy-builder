@@ -2320,8 +2320,9 @@
     // coalesces bursts from large pastes — same shape as scheduleSubRender
     // (which uses 300 ms for option changes). An emptied field runs
     // synchronously so button-disable feedback never lags a clear. Non-empty
-    // edits defer 150 ms; a Generate click inside that window is covered by
-    // the onGenerate flush (plan 027), which runs the pending parse first.
+    // edits defer 150 ms; a click inside that window is covered by the
+    // consumer flushes (Generate/Copy/Download — plans 027/032), which run
+    // the pending parse first.
     // Paste shares this scheduler: paste fires both paste and input, and one
     // timer means one parse instead of two.
     let config1InputTimer = null;
