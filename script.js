@@ -272,6 +272,7 @@
     // ===== Sing-box Config Generator =====
     function generateSingboxConfig(config1, config2) {
         const dnsServer = document.getElementById('dns-server').value;
+        const socksPort = parseInt(document.getElementById('socks-port').value) || 10808;
         const logLevel = document.getElementById('log-level').value;
 
         const remark = `🔗 ${config1.protocol.toUpperCase()} → ${config2.protocol.toUpperCase()} | ${config2.server}:${config2.port}`;
@@ -357,7 +358,7 @@
                     type: 'mixed',
                     tag: 'mixed-in',
                     listen: '127.0.0.1',
-                    listen_port: 2080
+                    listen_port: socksPort
                 }
             ],
             outbounds: [
@@ -435,6 +436,7 @@
     // ===== Nekoray Config Generator (Sing-box compatible) =====
     function generateSingboxClientConfig(config1, config2) {
         const dnsServer = document.getElementById('dns-server').value;
+        const socksPort = parseInt(document.getElementById('socks-port').value) || 10808;
         const logLevel = document.getElementById('log-level').value;
 
         const remark = `🔗 NEKORAY: ${config1.protocol.toUpperCase()} → ${config2.protocol.toUpperCase()} | ${config2.server}:${config2.port}`;
@@ -482,7 +484,7 @@
             inbounds: [
                 {
                     listen: '127.0.0.1',
-                    listen_port: 2080,
+                    listen_port: socksPort,
                     sniff: true,
                     tag: 'mixed-in',
                     type: 'mixed'

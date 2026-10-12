@@ -855,7 +855,7 @@ describe('026 parity (7) CORS step-3', () => {
 // - sing-box alpn split drops every 'h2' entry and keeps whitespace.
 // - sing-box vless always emits packet_encoding: ''.
 // - Empty alpn defaults to ['http/1.1'] in Xray but omits tls.alpn in sing-box.
-// - listen_port 2080 / log mapping / remote-dns live in the DOM-bound
+// - listen_port follows socks-port (||10808 fallback) / log mapping / remote-dns live in the DOM-bound
 //   generate* wrappers, not in these builders — untouched here.
 
 const VLESS_WS_TLS = {
