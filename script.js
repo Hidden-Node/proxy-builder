@@ -59,10 +59,8 @@
     // Tab elements
     const tabXray = document.getElementById('tab-xray');
     const tabSingbox = document.getElementById('tab-singbox');
-    const tabSingboxClient = document.getElementById('tab-singbox-client');
     const panelXray = document.getElementById('panel-xray');
     const panelSingbox = document.getElementById('panel-singbox');
-    const panelSingboxClient = document.getElementById('panel-singbox-client');
 
     // Main tab elements
     const mainTabs = document.querySelectorAll('.main-tab');
@@ -111,82 +109,14 @@
     const btnEchOpenSub = document.getElementById('btn-ech-open-sub');
     const btnDownloadEch = document.getElementById('btn-download-ech');
     const btnDownloadEchB64 = document.getElementById('btn-download-ech-b64');
-    let echOutputList = [];
-    let echSubRaw = [];
-    let echSubBusy = false;
-    let echLastSource = '';
-    let echSubProgressTimer = null;
-
-    // Throttled progress text (150 ms), mirroring the Subscription tab — the
-    // fetch callback fires per chunk, which is too noisy for large bodies.
-    function onEchSubProgress(loaded, total) {
-        if (echSubProgressTimer) return;
-        echSubProgressTimer = setTimeout(() => {
-            echSubProgressTimer = null;
-            if (!echSubBusy) return;
-            const kb = Math.round(loaded / 1024);
-            echSubHint.textContent = total
-                ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
-                : 'Fetching… ' + kb + ' KB';
-        }, 150);
-    }
+    // ECH per-tab state lives in its createEnhanceTab instance (026); globals removed.
 
     let parsedConfig1 = null;
     let parsedConfig2 = null;
     let sshMode1 = false;
     let sshMode2 = false;
-    let lastAutoServer = '';
-    let lastAutoEchServer = '';
-
-    // ===== URL Parser =====
-    function parseProxyURLSingle(raw) {
-        const url = raw.trim();
-        if (!url) return null;
-
-        const lower = url.toLowerCase();
-        if (lower.startsWith('vless://')) return parseVless(url);
-        if (lower.startsWith('vmess://')) return parseVmess(url);
-        if (lower.startsWith('trojan://')) return parseTrojan(url);
-        if (lower.startsWith('ss://')) return parseShadowsocks(url);
-        // Note: socks4/socks4a are intentionally not routed here. Xray outbound
-        // only supports SOCKS5 and this app always emits version 5 for sing-box,
-        // so accepting socks4 input would silently misrepresent the protocol.
-        if (lower.startsWith('tg://socks') || lower.startsWith('tg://socks5') || lower.startsWith('https://t.me/socks') || lower.startsWith('http://t.me/socks') || lower.startsWith('socks://') || lower.startsWith('socks5://')) return parseSocks(url);
-        if (lower.startsWith('http://') || lower.startsWith('https://')) return parseHttp(url);
-
-        try {
-            const decoded = safeAtob(url);
-            if (decoded) {
-                if (decoded.includes('"add"')) {
-                    return parseVmess('vmess://' + url);
-                }
-                const decodedLower = decoded.toLowerCase();
-                if (decodedLower.startsWith('vless://') || decodedLower.startsWith('vmess://') || decodedLower.startsWith('trojan://') || decodedLower.startsWith('ss://') || decodedLower.startsWith('socks://') || decodedLower.startsWith('socks5://') || decodedLower.startsWith('http://') || decodedLower.startsWith('https://') || decodedLower.startsWith('tg://')) {
-                    return parseProxyURLSingle(decoded);
-                }
-                if (decoded.includes('@') && decoded.includes(':')) {
-                    return parseSocks('socks5://' + decoded);
-                }
-            }
-        } catch { }
-
-        // Note: socks4/socks4a links fall through to this error on purpose.
-        // Only SOCKS5 is supported (Xray outbound is SOCKS5-only).
-        return { error: 'Unknown protocol. Supported: vless, vmess, trojan, ss, socks (socks5 only), http' };
-    }
-
-    function parseProxyURL(raw) {
-        const lines = extractLines(raw);
-        if (lines.length === 0) return null;
-        if (lines.length === 1) return parseProxyURLSingle(lines[0]);
-
-        const parsedList = lines.map(line => parseProxyURLSingle(line));
-        const validList = parsedList.filter(p => p && !p.error);
-        if (validList.length > 0) {
-            return validList;
-        }
-        return parsedList[0] || { error: 'Unknown protocol. Supported: vless, vmess, trojan, ss, socks (socks5 only), http' };
-    }
+    // lastAutoServer / lastAutoEchServer removed (026): per-instance closures
+    // in the tab controllers.
 
     // ===== SSH Parser (reads from form fields) =====
     function parseSSH(configNum) {
@@ -208,1116 +138,48 @@
         };
     }
 
-    function parseVless(url) {
-        try {
-            const u = new URL(url);
-            const params = Object.fromEntries(u.searchParams);
-            return {
-                protocol: 'vless',
-                uuid: u.username || safeDecode(url.split('://')[1].split('@')[0]),
-                server: u.hostname,
-                port: parseInt(u.port) || 443,
-                remark: safeDecode(u.hash.slice(1) || ''),
-                type: params.type || 'tcp',
-                headerType: params.headerType || 'none',
-                host: params.host || undefined,
-                path: params.path || undefined,
-                serviceName: params.serviceName || undefined,
-                authority: params.authority || undefined,
-                mode: params.mode || undefined,
-                security: params.security || 'none',
-                sni: params.sni || undefined,
-                fp: params.fp || 'chrome',
-                alpn: params.alpn || undefined,
-                pbk: params.pbk || undefined,
-                sid: params.sid || undefined,
-                spx: params.spx || undefined,
-                flow: params.flow || undefined,
-                encryption: params.encryption || 'none',
-                // ECH support
-                ech: params.ech || undefined,
-                // Insecure support
-                allowInsecure: params.allowInsecure === '1' || params.allowInsecure === 'true' || params.insecure === '1' || params.insecure === 'true'
-            };
-        } catch (e) {
-            return { error: 'Failed to parse VLESS URL: ' + e.message };
-        }
-    }
-
-    function parseVmess(url) {
-        try {
-            // Case-insensitive scheme strip: the router already accepts VMESS://
-            const b64 = url.replace(/^vmess:\/\//i, '');
-            const decoded = safeAtob(b64);
-            if (!decoded) return { error: 'Failed to decode VMess base64' };
-            const config = JSON.parse(decoded);
-            return {
-                protocol: 'vmess',
-                uuid: config.id,
-                server: config.add,
-                port: parseInt(config.port) || 443,
-                aid: parseInt(config.aid) || 0,
-                remark: config.ps || '',
-                type: config.net || 'tcp',
-                headerType: config.type || 'none',
-                host: config.host || undefined,
-                path: config.path || undefined,
-                serviceName: config.path || undefined,
-                authority: config.authority || undefined,
-                security: config.tls || 'none',
-                sni: config.sni || undefined,
-                fp: config.fp || 'chrome',
-                alpn: config.alpn || undefined,
-                allowInsecure: config.tls === 'tls' && (config.allowInsecure === 1 || config.allowInsecure === true || config.insecure === 1 || config.insecure === true)
-            };
-        } catch (e) {
-            return { error: 'Failed to parse VMess URL: ' + e.message };
-        }
-    }
-
-    function parseTrojan(url) {
-        try {
-            const u = new URL(url);
-            const params = Object.fromEntries(u.searchParams);
-            return {
-                protocol: 'trojan',
-                password: safeDecode(u.username || url.split('://')[1].split('@')[0]),
-                server: u.hostname,
-                port: parseInt(u.port) || 443,
-                remark: safeDecode(u.hash.slice(1) || ''),
-                type: params.type || 'tcp',
-                headerType: params.headerType || 'none',
-                host: params.host || undefined,
-                path: params.path || undefined,
-                serviceName: params.serviceName || undefined,
-                authority: params.authority || undefined,
-                mode: params.mode || undefined,
-                security: params.security || 'tls',
-                sni: params.sni || undefined,
-                fp: params.fp || 'chrome',
-                alpn: params.alpn || undefined,
-                pbk: params.pbk || undefined,
-                sid: params.sid || undefined,
-                spx: params.spx || undefined,
-                ech: params.ech || undefined,
-                allowInsecure: params.allowInsecure === '1' || params.allowInsecure === 'true' || params.insecure === '1' || params.insecure === 'true'
-            };
-        } catch (e) {
-            return { error: 'Failed to parse Trojan URL: ' + e.message };
-        }
-    }
-
-    function parseShadowsocks(url) {
-        try {
-            // Case-insensitive scheme strip: the router already accepts SS://
-            let raw = url.replace(/^ss:\/\//i, '');
-            const hashIdx = raw.indexOf('#');
-            let remark = '';
-            if (hashIdx !== -1) {
-                remark = safeDecode(raw.slice(hashIdx + 1));
-                raw = raw.slice(0, hashIdx);
-            }
-
-            let method, password, server, port;
-
-            if (raw.includes('@')) {
-                const [userPart, hostPart] = raw.split('@');
-                const decoded = safeAtob(userPart) || userPart;
-                const colonIdx = decoded.indexOf(':');
-                method = decoded.slice(0, colonIdx);
-                password = decoded.slice(colonIdx + 1);
-                const hostMatch = hostPart.match(/^(.+):(\d+)/);
-                if (hostMatch) {
-                    server = hostMatch[1];
-                    port = parseInt(hostMatch[2]);
-                }
-            } else {
-                const decoded = safeAtob(raw);
-                if (!decoded) return { error: 'Failed to decode SS base64' };
-                const match = decoded.match(/^(.+?):(.+)@(.+):(\d+)/);
-                if (match) {
-                    method = match[1];
-                    password = match[2];
-                    server = match[3];
-                    port = parseInt(match[4]);
-                }
-            }
-
-            if (!server) return { error: 'Failed to parse Shadowsocks URL' };
-
-            return {
-                protocol: 'shadowsocks',
-                method: method,
-                password: password,
-                server: server,
-                port: port,
-                remark: remark
-            };
-        } catch (e) {
-            return { error: 'Failed to parse Shadowsocks URL: ' + e.message };
-        }
-    }
-
-    function parseSocks(url) {
-        try {
-            let target = url.trim();
-            let remark = '';
-            let user, pass, server, port;
-
-            const lower = target.toLowerCase();
-            if (lower.startsWith('tg://socks') || lower.startsWith('tg://socks5') || lower.startsWith('https://t.me/socks') || lower.startsWith('http://t.me/socks')) {
-                // Telegram share format carries plain SOCKS5 credentials as query params.
-                // The output is still a standard SOCKS outbound, so Xray/sing-box support it.
-                const u = new URL(/^tg:\/\//i.test(target) ? target.replace(/^tg:\/\/(socks5|socks)\?/i, 'http://localhost/?') : target);
-                server = u.searchParams.get('server') || u.searchParams.get('host') || u.searchParams.get('ip') || '';
-                port = parseInt(u.searchParams.get('port')) || 1080;
-                user = u.searchParams.get('user') || u.searchParams.get('username') || undefined;
-                pass = u.searchParams.get('pass') || u.searchParams.get('password') || undefined;
-                // The hash fragment needs decoding, but query params are already
-                // decoded by URLSearchParams, so decoding them again would throw
-                // on values like "100%".
-                const tgHash = u.hash.slice(1);
-                remark = tgHash ? safeDecode(tgHash) : (u.searchParams.get('remark') || '');
-
-                if (!server) return { error: 'Failed to parse Telegram SOCKS URL: missing server' };
-                return {
-                    protocol: 'socks',
-                    server: server,
-                    port: port,
-                    user: user || undefined,
-                    pass: pass || undefined,
-                    remark: remark
-                };
-            }
-
-            // Only socks:// and socks5:// are supported here. socks4/socks4a
-            // input is rejected by the router on purpose (see above).
-            let body = target.replace(/^(socks5:\/\/|socks:\/\/)/i, '');
-
-            const hashIdx = body.indexOf('#');
-            if (hashIdx !== -1) {
-                remark = safeDecode(body.slice(hashIdx + 1));
-                body = body.slice(0, hashIdx);
-            }
-
-            if (!body.includes('@')) {
-                const decodedBody = safeAtob(body);
-                if (decodedBody && (decodedBody.includes(':') || decodedBody.includes('@'))) {
-                    if (!remark && decodedBody.includes('#')) {
-                        const dHashIdx = decodedBody.indexOf('#');
-                        remark = safeDecode(decodedBody.slice(dHashIdx + 1));
-                        body = decodedBody.slice(0, dHashIdx);
-                    } else {
-                        body = decodedBody;
-                    }
-                }
-            }
-
-            let userPart = '';
-            let hostPart = body;
-
-            if (body.includes('@')) {
-                const atIdx = body.lastIndexOf('@');
-                userPart = body.slice(0, atIdx);
-                hostPart = body.slice(atIdx + 1);
-            }
-
-            if (userPart) {
-                if (userPart.includes(':')) {
-                    const colonIdx = userPart.indexOf(':');
-                    user = safeDecode(userPart.slice(0, colonIdx));
-                    pass = safeDecode(userPart.slice(colonIdx + 1));
-                } else {
-                    const decodedUser = safeAtob(userPart);
-                    if (decodedUser && decodedUser.includes(':')) {
-                        const colonIdx = decodedUser.indexOf(':');
-                        user = decodedUser.slice(0, colonIdx);
-                        pass = decodedUser.slice(colonIdx + 1);
-                    } else {
-                        user = safeDecode(userPart);
-                    }
-                }
-            }
-
-            let searchParams = null;
-            if (hostPart.includes('?')) {
-                const qIdx = hostPart.indexOf('?');
-                try {
-                    searchParams = new URLSearchParams(hostPart.slice(qIdx + 1));
-                } catch { }
-                hostPart = hostPart.slice(0, qIdx);
-            }
-            hostPart = hostPart.replace(/\/+$/, '');
-
-            if (hostPart.startsWith('[')) {
-                const closeBracket = hostPart.indexOf(']');
-                if (closeBracket !== -1) {
-                    server = hostPart.slice(1, closeBracket);
-                    const portPart = hostPart.slice(closeBracket + 1);
-                    if (portPart.startsWith(':')) {
-                        port = parseInt(portPart.slice(1)) || 1080;
-                    } else {
-                        port = 1080;
-                    }
-                } else {
-                    server = hostPart;
-                    port = 1080;
-                }
-            } else if (hostPart.includes(':')) {
-                const lastColon = hostPart.lastIndexOf(':');
-                server = hostPart.slice(0, lastColon);
-                port = parseInt(hostPart.slice(lastColon + 1)) || 1080;
-            } else {
-                server = hostPart;
-                port = 1080;
-            }
-
-            if (searchParams) {
-                if (!user && (searchParams.get('user') || searchParams.get('username'))) {
-                    user = searchParams.get('user') || searchParams.get('username');
-                }
-                if (!pass && (searchParams.get('pass') || searchParams.get('password'))) {
-                    pass = searchParams.get('pass') || searchParams.get('password');
-                }
-                if (!remark && searchParams.get('remark')) {
-                    remark = searchParams.get('remark');
-                }
-            }
-
-            if (!server) return { error: 'Failed to parse SOCKS URL: missing server' };
-
-            return {
-                protocol: 'socks',
-                server: server,
-                port: port,
-                user: user || undefined,
-                pass: pass || undefined,
-                remark: remark
-            };
-        } catch (e) {
-            return { error: 'Failed to parse SOCKS URL: ' + e.message };
-        }
-    }
-
-    function parseHttp(url) {
-        try {
-            let target = url.trim();
-            let remark = '';
-            let user, pass, server, port;
-
-            const lower = target.toLowerCase();
-            if (lower.startsWith('tg://http') || lower.startsWith('https://t.me/http') || lower.startsWith('http://t.me/http')) {
-                const u = new URL(/^tg:\/\//i.test(target) ? target.replace(/^tg:\/\/http\?/i, 'http://localhost/?') : target);
-                server = u.searchParams.get('server') || u.searchParams.get('host') || u.searchParams.get('ip') || '';
-                port = parseInt(u.searchParams.get('port')) || 80;
-                user = u.searchParams.get('user') || u.searchParams.get('username') || undefined;
-                pass = u.searchParams.get('pass') || u.searchParams.get('password') || undefined;
-                // Same double-decode guard as in parseSocks: hash needs decoding,
-                // query params are already decoded by URLSearchParams.
-                const tgHash = u.hash.slice(1);
-                remark = tgHash ? safeDecode(tgHash) : (u.searchParams.get('remark') || '');
-
-                if (!server) return { error: 'Failed to parse HTTP URL: missing server' };
-                return {
-                    protocol: 'http',
-                    server: server,
-                    port: port,
-                    user: user || undefined,
-                    pass: pass || undefined,
-                    remark: remark
-                };
-            }
-
-            let body = target.replace(/^(https:\/\/|http:\/\/)/i, '');
-
-            const hashIdx = body.indexOf('#');
-            if (hashIdx !== -1) {
-                remark = safeDecode(body.slice(hashIdx + 1));
-                body = body.slice(0, hashIdx);
-            }
-
-            if (!body.includes('@')) {
-                const decodedBody = safeAtob(body);
-                if (decodedBody && (decodedBody.includes(':') || decodedBody.includes('@'))) {
-                    if (!remark && decodedBody.includes('#')) {
-                        const dHashIdx = decodedBody.indexOf('#');
-                        remark = safeDecode(decodedBody.slice(dHashIdx + 1));
-                        body = decodedBody.slice(0, dHashIdx);
-                    } else {
-                        body = decodedBody;
-                    }
-                }
-            }
-
-            let userPart = '';
-            let hostPart = body;
-
-            if (body.includes('@')) {
-                const atIdx = body.lastIndexOf('@');
-                userPart = body.slice(0, atIdx);
-                hostPart = body.slice(atIdx + 1);
-            }
-
-            if (userPart) {
-                if (userPart.includes(':')) {
-                    const colonIdx = userPart.indexOf(':');
-                    user = safeDecode(userPart.slice(0, colonIdx));
-                    pass = safeDecode(userPart.slice(colonIdx + 1));
-                } else {
-                    const decodedUser = safeAtob(userPart);
-                    if (decodedUser && decodedUser.includes(':')) {
-                        const colonIdx = decodedUser.indexOf(':');
-                        user = decodedUser.slice(0, colonIdx);
-                        pass = decodedUser.slice(colonIdx + 1);
-                    } else {
-                        user = safeDecode(userPart);
-                    }
-                }
-            }
-
-            let searchParams = null;
-            if (hostPart.includes('?')) {
-                const qIdx = hostPart.indexOf('?');
-                try {
-                    searchParams = new URLSearchParams(hostPart.slice(qIdx + 1));
-                } catch { }
-                hostPart = hostPart.slice(0, qIdx);
-            }
-            hostPart = hostPart.replace(/\/+$/, '');
-
-            if (hostPart.startsWith('[')) {
-                const closeBracket = hostPart.indexOf(']');
-                if (closeBracket !== -1) {
-                    server = hostPart.slice(1, closeBracket);
-                    const portPart = hostPart.slice(closeBracket + 1);
-                    if (portPart.startsWith(':')) {
-                        port = parseInt(portPart.slice(1)) || 80;
-                    } else {
-                        port = 80;
-                    }
-                } else {
-                    server = hostPart;
-                    port = 80;
-                }
-            } else if (hostPart.includes(':')) {
-                const lastColon = hostPart.lastIndexOf(':');
-                server = hostPart.slice(0, lastColon);
-                port = parseInt(hostPart.slice(lastColon + 1)) || 80;
-            } else {
-                server = hostPart;
-                port = 80;
-            }
-
-            if (searchParams) {
-                if (!user && (searchParams.get('user') || searchParams.get('username'))) {
-                    user = searchParams.get('user') || searchParams.get('username');
-                }
-                if (!pass && (searchParams.get('pass') || searchParams.get('password'))) {
-                    pass = searchParams.get('pass') || searchParams.get('password');
-                }
-                if (!remark && searchParams.get('remark')) {
-                    remark = searchParams.get('remark');
-                }
-            }
-
-            if (!server) return { error: 'Failed to parse HTTP URL: missing server' };
-
-            return {
-                protocol: 'http',
-                server: server,
-                port: port,
-                user: user || undefined,
-                pass: pass || undefined,
-                remark: remark
-            };
-        } catch (e) {
-            return { error: 'Failed to parse HTTP URL: ' + e.message };
-        }
-    }
-
     // ===== URL Enhancer (Fragment + Fingerprint) =====
 
     function enhanceURL(raw, opts) {
-        const url = raw.trim();
-        if (!url) return { error: 'No URL provided' };
-        // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
-        // as well, and the bulk path would otherwise count those as "skipped".
-        const scheme = url.slice(0, url.indexOf('://')).toLowerCase();
-        if (scheme !== 'vless' && scheme !== 'trojan') {
-            return { error: 'Only VLESS and Trojan URLs are supported' };
-        }
-
-        let u;
-        try {
-            u = new URL(url);
-        } catch (e) {
-            return { error: 'Failed to parse URL: ' + e.message };
-        }
-
-        const params = u.searchParams;
-        const security = params.get('security') || 'none';
-
-        // Server override — auto-filled from URL, user-editable, empty keeps original.
-        // opts.ignoreServer skips it: a subscription holds many servers, so rewriting
-        // every entry to one address would break the whole list.
-        const server = (opts && opts.ignoreServer) ? '' : enhancerServer.value.trim();
-        if (server) {
-            const host = server.includes(':') && !server.startsWith('[')
-                ? '[' + server + ']'
-                : server;
-            try {
-                u.hostname = host;
-            } catch (e) {
-                return { error: 'Invalid server address: ' + e.message };
-            }
-        }
-
-        // Fingerprint — always applied when selected value is non-empty
-        const fp = enhancerFp.value.trim();
-        if (fp && fp !== 'none') {
-            params.set('fp', fp);
-        }
-
-        // Cipher suites & fragment mask — only meaningful with TLS
-        if (security === 'tls') {
-            const cs = enhancerCs.value.trim();
-            if (cs) {
-                params.set('cs', cs);
-            }
-            const fm = enhancerFm.value.trim();
-            if (fm) {
-                params.set('fm', fm);
-            }
-        }
-
-        // URLSearchParams encodes spaces as '+', but v2ray-style clients use '%20'
-        u.search = u.search.replace(/\+/g, '%20');
-
-        return { url: u.toString() };
-    }
-
-    function onEnhancerInput() {
-        const val = enhancerInput.value.trim();
-        const lines = extractLines(val);
-        let parsedList = [];
-        let unsupportedCount = 0;
-        let invalidCount = 0;
-
-        if (lines.length > 0) {
-            lines.forEach(line => {
-                const p = parseProxyURLSingle(line);
-                if (p && !p.error) {
-                    if (p.protocol === 'vless' || p.protocol === 'trojan') {
-                        parsedList.push(p);
-                    } else {
-                        unsupportedCount++;
-                    }
-                } else {
-                    invalidCount++;
-                }
-            });
-        }
-
-        // Auto-fill the server field from the URL — only for a single config.
-        // With multiple configs, auto-filling from the first URL would silently
-        // override every config's server with the first one's. A user-typed
-        // custom value is kept: it acts as a deliberate override for all configs.
-        if (parsedList.length === 1) {
-            const firstServer = parsedList[0].server || '';
-            const current = enhancerServer.value.trim();
-            if (!current || current === lastAutoServer || current === firstServer) {
-                enhancerServer.value = firstServer;
-                lastAutoServer = firstServer;
-            }
-        } else if (parsedList.length > 1) {
-            const current = enhancerServer.value.trim();
-            if (!current || current === lastAutoServer) {
-                enhancerServer.value = '';
-                lastAutoServer = '';
-            }
-        } else if (!enhancerServer.value.trim()) {
-            lastAutoServer = '';
-        }
-
-        if (lines.length > 0) {
-            if (parsedList.length > 0) {
-                renderParsedInfo(parsedList.length === 1 ? parsedList[0] : parsedList, enhancerParsed);
-                const protocols = Array.from(new Set(parsedList.map(p => p.protocol)));
-                if (protocols.length === 1) {
-                    updateProtocolTag(enhancerProtocolTag, parsedList[0]);
-                } else {
-                    enhancerProtocolTag.textContent = 'MULTI';
-                    enhancerProtocolTag.classList.add('active');
-                    enhancerProtocolTag.style.color = '#7c5cff';
-                    enhancerProtocolTag.style.borderColor = '#7c5cff4d';
-                    enhancerProtocolTag.style.background = '#7c5cff1a';
-                }
-            } else {
-                renderParsedInfo({
-                    error: unsupportedCount > 0
-                        ? 'Only VLESS and Trojan URLs are supported'
-                        : 'Failed to parse URL'
-                }, enhancerParsed);
-                updateProtocolTag(enhancerProtocolTag, null);
-            }
-        } else {
-            renderParsedInfo(null, enhancerParsed);
-            updateProtocolTag(enhancerProtocolTag, null);
-        }
-
-        enhancerCard.classList.remove('valid', 'invalid');
-        if (lines.length > 0 && parsedList.length > 0) {
-            enhancerCard.classList.add('valid');
-        } else if (lines.length > 0) {
-            enhancerCard.classList.add('invalid');
-        }
-
-        const count = parsedList.length;
-        btnEnhance.disabled = count === 0;
-        btnEnhance.innerHTML = `<span class="btn-icon">✨</span> Enhance ${count > 1 ? count + ' URLs' : 'URL'}`;
-        enhanceHint.textContent = count > 0
-            ? `Ready to enhance ${count} URL${count > 1 ? 's' : ''}!`
-            : 'Paste VLESS or Trojan URL(s) above to enable';
-        enhanceHint.style.color = count > 0 ? '#4cdf86' : '';
-    }
-
-    function onEnhance() {
-        const val = enhancerInput.value.trim();
-        const lines = extractLines(val);
-        if (lines.length === 0) {
-            subOutputSection.style.display = 'none';
-            return;
-        }
-
-        const enhancedUrls = [];
-        lines.forEach(line => {
-            const p = parseProxyURLSingle(line);
-            if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
-                const res = enhanceURL(line);
-                if (res && res.url) {
-                    enhancedUrls.push(res.url);
-                }
-            }
+        return enhanceUrlCore(raw, {
+            server: enhancerServer.value,
+            fp: enhancerFp.value,
+            cs: enhancerCs.value,
+            fm: enhancerFm.value,
+            ignoreServer: !!(opts && opts.ignoreServer)
         });
-
-        if (enhancedUrls.length === 0) {
-            subOutputSection.style.display = 'none';
-            return;
-        }
-
-        const count = enhancedUrls.length;
-        const firstParsed = parseProxyURLSingle(lines[0]);
-        const remark = count === 1
-            ? (firstParsed && firstParsed.remark
-                ? `✨ ${firstParsed.protocol.toUpperCase()} ${firstParsed.server}:${firstParsed.port} | enhanced`
-                : '✨ Enhanced')
-            : `✨ Enhanced ${count} URLs`;
-
-        // Shared output (same section the Subscription mode renders into):
-        // URL mode keeps blank-line separation; downloads export this text as-is.
-        subResults = enhancedUrls;
-        subOutputRemark.textContent = remark;
-        subOutputUrl.textContent = enhancedUrls.join('\n\n');
-        subOutputSection.style.display = 'block';
-        subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+
+    // Fragment URL-input/enhance originals removed (026): the fragTab
+    // createEnhanceTab instance below owns this tab now (IDs, filenames,
+    // option controls kept).
 
     // ===== ECH Enhancer (own tab — fp + ech only) =====
 
     function enhanceEchURL(raw, opts) {
-        const url = raw.trim();
-        if (!url) return { error: 'No URL provided' };
-        // Case-insensitive on purpose — parseProxyURLSingle() accepts VLESS://
-        // as well, and the bulk path would otherwise count those as "skipped".
-        const scheme = url.slice(0, url.indexOf('://')).toLowerCase();
-        if (scheme !== 'vless' && scheme !== 'trojan') {
-            return { error: 'Only VLESS and Trojan URLs are supported' };
-        }
-
-        let u;
-        try {
-            u = new URL(url);
-        } catch (e) {
-            return { error: 'Failed to parse URL: ' + e.message };
-        }
-
-        const params = u.searchParams;
-        // Missing security means plaintext ('none') — Trojan links are not
-        // always TLS (e.g. port-80 ws links with no security param), so never
-        // assume 'tls' here; that would inject ech into a plaintext config.
-        const security = params.get('security') || 'none';
-
-        // Server override — auto-filled from URL, user-editable, empty keeps original.
-        // opts.ignoreServer skips it for bulk input: a subscription holds many
-        // servers, so rewriting every entry to one address would break the list.
-        const server = (opts && opts.ignoreServer) ? '' : echServer.value.trim();
-        if (server) {
-            const host = server.includes(':') && !server.startsWith('[')
-                ? '[' + server + ']'
-                : server;
-            try {
-                u.hostname = host;
-            } catch (e) {
-                return { error: 'Invalid server address: ' + e.message };
-            }
-        }
-
-        // Fingerprint — applied when set; 'none'/empty removes an existing value
-        // so "clear to skip" also strips a previously-enhanced URL.
-        const fp = echFp.value.trim();
-        if (fp && fp !== 'none') {
-            params.set('fp', fp);
-        } else {
-            params.delete('fp');
-        }
-
-        // ECH config list — only meaningful with TLS. A bare domain
-        // ("cloudflare-ech.com") is completed with the default DNS, BPB-style;
-        // URLSearchParams serializes the '+' separator as %2B, which is what
-        // Xray expects. Empty removes an existing value ("clear to skip").
-        if (security === 'tls') {
-            const ech = normalizeEchInput(echText.value);
-            if (ech) {
-                params.set('ech', ech);
-            } else {
-                params.delete('ech');
-            }
-        }
-
-        // URLSearchParams encodes spaces as '+', but v2ray-style clients use '%20'
-        u.search = u.search.replace(/\+/g, '%20');
-
-        return { url: u.toString() };
-    }
-
-    function onEchInput() {
-        const val = echInput.value.trim();
-        const lines = extractLines(val);
-
-        // The output box is shared with the subscription input — any edit here
-        // invalidates whatever is shown, whichever input produced it.
-        echOutputSection.style.display = 'none';
-        echOutputUrl.textContent = '';
-        echOutputRemark.textContent = '';
-        echLastSource = '';
-        echOutputList = [];
-        let parsedList = [];
-        let unsupportedCount = 0;
-        let invalidCount = 0;
-
-        if (lines.length > 0) {
-            lines.forEach(line => {
-                const p = parseProxyURLSingle(line);
-                if (p && !p.error) {
-                    if (p.protocol === 'vless' || p.protocol === 'trojan') {
-                        parsedList.push(p);
-                    } else {
-                        unsupportedCount++;
-                    }
-                } else {
-                    invalidCount++;
-                }
-            });
-        }
-
-        // Auto-fill the server field from the URL — only for a single config.
-        if (parsedList.length === 1) {
-            const firstServer = parsedList[0].server || '';
-            const current = echServer.value.trim();
-            if (!current || current === lastAutoEchServer || current === firstServer) {
-                echServer.value = firstServer;
-                lastAutoEchServer = firstServer;
-            }
-        } else if (parsedList.length > 1) {
-            const current = echServer.value.trim();
-            if (!current || current === lastAutoEchServer) {
-                echServer.value = '';
-                lastAutoEchServer = '';
-            }
-        } else if (!echServer.value.trim()) {
-            lastAutoEchServer = '';
-        }
-
-        if (lines.length > 0) {
-            if (parsedList.length > 0) {
-                renderParsedInfo(parsedList.length === 1 ? parsedList[0] : parsedList, echParsed);
-                const protocols = Array.from(new Set(parsedList.map(p => p.protocol)));
-                if (protocols.length === 1) {
-                    updateProtocolTag(echProtocolTag, parsedList[0]);
-                } else {
-                    echProtocolTag.textContent = 'MULTI';
-                    echProtocolTag.classList.add('active');
-                    echProtocolTag.style.color = '#7c5cff';
-                    echProtocolTag.style.borderColor = '#7c5cff4d';
-                    echProtocolTag.style.background = '#7c5cff1a';
-                }
-            } else {
-                renderParsedInfo({
-                    error: unsupportedCount > 0
-                        ? 'Only VLESS and Trojan URLs are supported'
-                        : 'Failed to parse URL'
-                }, echParsed);
-                updateProtocolTag(echProtocolTag, null);
-            }
-        } else {
-            renderParsedInfo(null, echParsed);
-            updateProtocolTag(echProtocolTag, null);
-        }
-
-        echCard.classList.remove('valid', 'invalid');
-        if (lines.length > 0 && parsedList.length > 0) {
-            echCard.classList.add('valid');
-        } else if (lines.length > 0) {
-            echCard.classList.add('invalid');
-        }
-
-        const count = parsedList.length;
-        btnEchEnhance.disabled = count === 0;
-        btnEchEnhance.innerHTML = `<span class="btn-icon">✨</span> Enhance ${count > 1 ? count + ' URLs' : 'URL'}`;
-        echHint.textContent = count > 0
-            ? `Ready to enhance ${count} URL${count > 1 ? 's' : ''}!`
-            : 'Paste VLESS or Trojan URL(s) above to enable';
-        echHint.style.color = count > 0 ? '#4cdf86' : '';
-    }
-
-    function onEchEnhance() {
-        const val = echInput.value.trim();
-        const lines = extractLines(val);
-        if (lines.length === 0) {
-            echOutputSection.style.display = 'none';
-            return;
-        }
-
-        const enhancedUrls = [];
-        let firstEnhanced = null;
-        lines.forEach(line => {
-            const p = parseProxyURLSingle(line);
-            if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
-                const res = enhanceEchURL(line);
-                if (res && res.url) {
-                    if (!firstEnhanced) firstEnhanced = p;
-                    enhancedUrls.push(res.url);
-                }
-            }
+        return enhanceEchUrlCore(raw, {
+            server: echServer.value,
+            fp: echFp.value,
+            ech: echText.value,
+            ignoreServer: !!(opts && opts.ignoreServer)
         });
-
-        if (enhancedUrls.length === 0) {
-            echOutputSection.style.display = 'none';
-            echOutputList = [];
-            echHint.textContent = 'Could not enhance — check the URLs and the Server override';
-            echHint.style.color = '#f05050';
-            return;
-        }
-
-        const count = enhancedUrls.length;
-        const firstParsed = firstEnhanced;
-        // Show the post-override address: read it back from the enhanced URL
-        // rather than the pre-enhance parse result.
-        let remarkHost = firstParsed ? `${firstParsed.server}:${firstParsed.port}` : '';
-        try {
-            const firstOut = new URL(enhancedUrls[0]);
-            if (firstOut.hostname) remarkHost = firstOut.host;
-        } catch {
-            // keep the pre-enhance values
-        }
-        const remark = count === 1
-            ? (firstParsed && firstParsed.remark
-                ? `✨ ${firstParsed.protocol.toUpperCase()} ${remarkHost} | enhanced`
-                : '✨ Enhanced')
-            : `✨ Enhanced ${count} URLs`;
-
-        echOutputRemark.textContent = remark;
-        echOutputUrl.textContent = enhancedUrls.join('\n\n');
-        echOutputSection.style.display = 'block';
-        echLastSource = 'url';
-        echOutputList = enhancedUrls;
-        echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+
+    // ECH URL-input/enhance originals removed (026): the echTab createEnhanceTab
+    // instance below owns this tab now (IDs, filenames, option controls kept).
 
     // ===== ECH subscription input (link fetch or pasted contents, shared output) =====
 
-    function setEchSubError(text) {
-        echSubParsed.textContent = '';
-        const err = document.createElement('div');
-        err.className = 'error-msg';
-        err.textContent = '⚠️ ' + text;
-        echSubParsed.appendChild(err);
-    }
+    // setEchSubError removed (026): closure setTabSubError in the ECH tab controller.
 
     // Manual-fetch fallback for providers that block browser fetches (no CORS
     // headers): an "Open link" button + 3 steps, mirroring the Subscription tab.
     // Built with DOM APIs only (no innerHTML).
-    function setEchSubCorsGuide(linkUrl) {
-        const guide = document.createElement('div');
-        guide.className = 'sub-guide';
-        const title = document.createElement('div');
-        title.textContent = 'Get the content manually — 3 quick steps:';
-        const steps = document.createElement('ol');
-        const first = document.createElement('li');
-        first.textContent = 'Open your subscription link in a new tab: ';
-        const openBtn = document.createElement('button');
-        openBtn.type = 'button';
-        openBtn.className = 'btn-subtle';
-        openBtn.textContent = '↗ Open link';
-        openBtn.addEventListener('click', () => openSubLink(linkUrl));
-        first.appendChild(openBtn);
-        const second = document.createElement('li');
-        second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
-        const third = document.createElement('li');
-        third.textContent = 'Paste it into the subscription box above and press Fetch & Enhance Sub.';
-        steps.append(first, second, third);
-        guide.append(title, steps);
-        echSubParsed.appendChild(guide);
-    }
+    // ECH CORS guide helper removed (026): closure in the tab controller.
 
-    // Enables the Open-link button exactly when the field holds a link.
-    function syncEchOpenButton() {
-        btnEchOpenSub.disabled = subValidate(echSubInput.value.trim()) !== 'link';
-    }
+    // syncEchOpenButton removed (026): closure syncTabOpenButton in the ECH tab controller.
 
-    function onEchSubInput() {
-        const raw = echSubInput.value.trim();
-        // A fetch is in flight — typing must not re-enable the button (the
-        // click would be swallowed by the busy guard in onEchSub anyway).
-        if (echSubBusy) {
-            btnEchSub.disabled = true;
-            return;
-        }
-        echSubCard.classList.remove('valid', 'invalid');
-        echSubRaw = [];
-
-        // Any edit invalidates the previous result, whichever input produced it.
-        echOutputSection.style.display = 'none';
-        echOutputUrl.textContent = '';
-        echOutputRemark.textContent = '';
-        echSubParsed.textContent = '';
-        echSubHint.style.color = '';
-        echOutputList = [];
-
-        if (!raw) {
-            btnEchSub.disabled = true;
-            btnEchOpenSub.disabled = true;
-            echSubHint.textContent = 'Paste a subscription link — or its contents — above to enable';
-            return;
-        }
-
-        const mode = subValidate(raw);
-        if (mode === 'link' || mode === 'content') {
-            echSubCard.classList.add('valid');
-            btnEchSub.disabled = false;
-            syncEchOpenButton();
-            echSubHint.textContent = mode === 'link'
-                ? 'Ready to fetch & enhance'
-                : 'Ready to enhance pasted contents';
-            echSubHint.style.color = '#4cdf86';
-        } else if (mode === 'proxy') {
-            echSubCard.classList.add('invalid');
-            btnEchSub.disabled = true;
-            btnEchOpenSub.disabled = true;
-            echSubHint.textContent = 'That looks like an HTTP proxy address, not a subscription';
-            setEchSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.');
-        } else {
-            echSubCard.classList.add('invalid');
-            btnEchSub.disabled = true;
-            btnEchOpenSub.disabled = true;
-            echSubHint.textContent = 'Unrecognized input — paste a subscription link or its contents';
-        }
-    }
-
-    function renderEchSubResults(configs, focus) {
-        let enhanced = [];
-        let skipped = 0;
-        let invalid = 0;
-        configs.forEach(line => {
-            // Raw base64 container line (no scheme): when it decodes to config
-            // lines, those twins are already separate entries below — skip it
-            // silently instead of a phantom skip/invalid report.
-            if (!SUB_SCHEME.test(line)) {
-                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
-                if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
-            }
-            const p = parseProxyURLSingle(line);
-            if (!p || p.error) {
-                invalid++;
-                return;
-            }
-            if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
-                skipped++;
-                return;
-            }
-            const res = enhanceEchURL(line, { ignoreServer: true });
-            if (res && res.url) {
-                enhanced.push(res.url);
-            } else if (line.includes('://')) {
-                // The line parsed but could not be enhanced — unusable line.
-                invalid++;
-            }
-            // Else: raw base64 line whose decoded twin was already counted —
-            // ignored silently instead of a phantom skip/invalid report.
-        });
-
-        if (enhanced.length === 0) {
-            echOutputSection.style.display = 'none';
-            echOutputList = [];
-            echSubHint.textContent = configs.length
-                ? 'Found configs, but none were VLESS/Trojan with a usable URL'
-                : 'No proxy configs found in the input';
-            echSubHint.style.color = '#f0c040';
-            echSubCard.classList.remove('valid');
-            echSubCard.classList.add('invalid');
-            setEchSubError(configs.length
-                ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
-                : 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.');
-            return;
-        }
-
-        echSubParsed.textContent = '';
-        echSubCard.classList.remove('invalid');
-        echSubCard.classList.add('valid');
-
-        const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
-        if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
-        if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
-        echOutputRemark.textContent = parts.join(' · ');
-        echOutputUrl.textContent = enhanced.join('\n');
-        echOutputSection.style.display = 'block';
-        echLastSource = 'sub';
-        echOutputList = enhanced;
-        if (focus) echOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        echSubHint.textContent = 'Done';
-        echSubHint.style.color = '#4cdf86';
-    }
-
-    // Re-enhance stored subscription configs when the ECH options change,
-    // without re-fetching. Only fires when the visible output came from the
-    // subscription input — never clobbers URL-input results.
-    let echSubRenderTimer = null;
-    function scheduleEchSubRender() {
-        if (echSubBusy || !echSubRaw.length || echLastSource !== 'sub') return;
-        clearTimeout(echSubRenderTimer);
-        echSubRenderTimer = setTimeout(() => {
-            echSubRenderTimer = null;
-            if (echSubBusy || !echSubRaw.length || echLastSource !== 'sub') return;
-            renderEchSubResults(echSubRaw, false);
-        }, 300);
-    }
-
-    async function onEchSub() {
-        const raw = echSubInput.value.trim();
-        if (!raw || echSubBusy) return;
-
-        const mode = subValidate(raw);
-        if (mode !== 'link' && mode !== 'content') {
-            onEchSubInput();
-            return;
-        }
-
-        // Pasted content: no fetch at all.
-        if (mode === 'content') {
-            echSubRaw = extractSubConfigs(raw);
-            renderEchSubResults(echSubRaw, true);
-            return;
-        }
-
-        echSubBusy = true;
-        btnEchSub.disabled = true;
-        btnEchOpenSub.disabled = true;
-        echSubHint.textContent = 'Fetching…';
-        echSubHint.style.color = '';
-        echSubParsed.textContent = '';
-        echSubCard.classList.remove('invalid');
-        echOutputSection.style.display = 'none';
-        echOutputUrl.textContent = '';
-        echOutputRemark.textContent = '';
-        echSubRaw = [];
-        echOutputList = [];
-
-        try {
-            const body = await fetchSubBody(raw, onEchSubProgress);
-            echSubBusy = false;
-            if (echSubProgressTimer) {
-                clearTimeout(echSubProgressTimer);
-                echSubProgressTimer = null;
-            }
-            btnEchSub.disabled = false;
-            // The field changed mid-fetch — drop the result, never render output
-            // under input it no longer belongs to.
-            if (echSubInput.value.trim() !== raw) {
-                echSubRaw = [];
-                onEchSubInput();
-                echSubHint.textContent = 'Input changed during the fetch — fetch again';
-                echSubHint.style.color = '#f0c040';
-                return;
-            }
-            echSubRaw = extractSubConfigs(body);
-            renderEchSubResults(echSubRaw, true);
-            syncEchOpenButton();
-        } catch (e) {
-            echSubBusy = false;
-            if (echSubProgressTimer) {
-                clearTimeout(echSubProgressTimer);
-                echSubProgressTimer = null;
-            }
-            btnEchSub.disabled = false;
-            if (echSubInput.value.trim() !== raw) {
-                echSubRaw = [];
-                onEchSubInput();
-                echSubHint.textContent = 'Input changed during the fetch — fetch again';
-                echSubHint.style.color = '#f0c040';
-                return;
-            }
-            echSubHint.textContent = 'Fetch failed';
-            echSubHint.style.color = '#f05050';
-            echSubCard.classList.remove('valid');
-            echSubCard.classList.add('invalid');
-            setEchSubError(subErrorText(e));
-            syncEchOpenButton();
-            if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setEchSubCorsGuide(raw);
-        }
-    }
-
-    // Accept a saved subscription file (.txt) dropped onto the ECH sub card.
-    // Everything stays local: FileReader never uploads anything.
-    function onEchSubDropError(text) {
-        echOutputSection.style.display = 'none';
-        echOutputUrl.textContent = '';
-        echOutputRemark.textContent = '';
-        // Re-validate whatever is actually in the field instead of assuming
-        // the input needs fixing — the field may still hold a valid link.
-        onEchSubInput();
-        setEchSubError(text);
-        echSubRaw = [];
-        echOutputList = [];
-    }
-    function onEchSubDragOver(e) {
-        e.preventDefault();
-        echSubCard.classList.add('dragover');
-    }
-    function onEchSubDragLeave(e) {
-        e.preventDefault();
-        // dragleave also fires when moving between children of the card —
-        // only clear the highlight when the pointer truly leaves it.
-        if (e.relatedTarget && echSubCard.contains(e.relatedTarget)) return;
-        echSubCard.classList.remove('dragover');
-    }
-    function onEchSubDrop(e) {
-        e.preventDefault();
-        echSubCard.classList.remove('dragover');
-        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (!file) return;
-        if (file.size > SUB_MAX_FILE_BYTES) {
-            onEchSubDropError('That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.');
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            echSubInput.value = String(reader.result || '');
-            onEchSubInput();
-            echSubInput.focus();
-        };
-        reader.onerror = () => onEchSubDropError('Could not read that file.');
-        reader.readAsText(file);
-    }
+    // ECH subscription originals removed (026): owned by the echTab instance.
 
     // ===== Xray Outbound Builders =====
 
@@ -1534,6 +396,7 @@
                         }]
                     }]
                 };
+                if (params.flow) outbound.settings.vnext[0].users[0].flow = params.flow;
                 break;
 
             case 'vmess':
@@ -2278,16 +1141,6 @@
         ).join('');
     }
 
-    function maskString(str) {
-        if (!str || str.length <= 8) return str;
-        return str.slice(0, 4) + '••••' + str.slice(-4);
-    }
-
-    function truncateStr(str, max) {
-        if (!str || str.length <= max) return str;
-        return str.slice(0, max) + '…';
-    }
-
     function escapeHtml(str) {
         const div = document.createElement('div');
         div.textContent = str;
@@ -2416,6 +1269,19 @@
     }
 
     function onGenerate() {
+        // Flush any debounced chain-input parse still waiting on its 150 ms
+        // timer, so a Generate click within the delay consumes the visible
+        // field contents, never stale parsedConfig1/2 (plan 027).
+        if (config1InputTimer) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }
+        if (config2InputTimer) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }
         if (!parsedConfig1 || !parsedConfig2) return;
 
         const hasSSH = parsedConfig1.protocol === 'ssh' || parsedConfig2.protocol === 'ssh';
@@ -2424,10 +1290,14 @@
         if (hasSSH) {
             tabXray.classList.add('disabled');
             tabXray.title = 'SSH is not supported by Xray';
+            btnCopyXray.disabled = true;
+            btnDownloadXray.disabled = true;
             switchTab('singbox');
         } else {
             tabXray.classList.remove('disabled');
             tabXray.title = '';
+            btnCopyXray.disabled = false;
+            btnDownloadXray.disabled = false;
         }
 
         // Generate Xray config (skip if SSH is involved)
@@ -2470,39 +1340,57 @@
     }
 
     function doCopy(btn, configGenerator) {
+        // Flush any debounced chain-input parse still waiting on its 150 ms
+        // timer, so a Generate click within the delay consumes the visible
+        // field contents, never stale parsedConfig1/2 (plan 027 + copy/download (plan 032)).
+        if (config1InputTimer) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }
+        if (config2InputTimer) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }
         if (!parsedConfig1 || !parsedConfig2) return;
+        // Defense in depth: block Xray output for SSH configs even if the
+        // buttons are enabled. NOTE: the function-identity check breaks if a
+        // later plan wraps generators — prefer an explicit isXray boolean
+        // parameter then. Safe for now: plan 016 passes values, not wrappers.
+        if (configGenerator === generateFullConfig && (parsedConfig1?.protocol === 'ssh' || parsedConfig2?.protocol === 'ssh')) return;
         const result = configGenerator(parsedConfig1, parsedConfig2);
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
-        // file:// / plain http have no async clipboard — a sync throw here
-        // would bypass .then() entirely, so bail out quietly instead.
-        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
-        navigator.clipboard.writeText(text).then(() => {
-            btn.classList.add('copied');
-            btn.innerHTML = '<span class="copy-icon">✅</span> Copied!';
-            setTimeout(() => {
-                btn.classList.remove('copied');
-                btn.innerHTML = '<span class="copy-icon">📋</span> Copy';
-            }, 2000);
-        });
+        copyTextWithFeedback(btn, text, generateHint);
     }
 
     function doDownload(configGenerator, prefix) {
+        // Flush any debounced chain-input parse still waiting on its 150 ms
+        // timer, so a Generate click within the delay consumes the visible
+        // field contents, never stale parsedConfig1/2 (plan 027 + copy/download (plan 032)).
+        if (config1InputTimer) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }
+        if (config2InputTimer) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }
         if (!parsedConfig1 || !parsedConfig2) return;
+        // Defense in depth: block Xray output for SSH configs even if the
+        // buttons are enabled. NOTE: the function-identity check breaks if a
+        // later plan wraps generators — prefer an explicit isXray boolean
+        // parameter then. Safe for now: plan 016 passes values, not wrappers.
+        if (configGenerator === generateFullConfig && (parsedConfig1?.protocol === 'ssh' || parsedConfig2?.protocol === 'ssh')) return;
         const result = configGenerator(parsedConfig1, parsedConfig2);
         if (!result) return;
 
         const text = JSON.stringify(result.config, null, 2);
-        const blob = new Blob([text], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${prefix}-${parsedConfig1.protocol}-${parsedConfig2.protocol}-${parsedConfig2.server}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        downloadText(`${prefix}-${parsedConfig1.protocol}-${parsedConfig2.protocol}-${parsedConfig2.server}.json`, text, 'application/json');
     }
 
     // ===== Subscription Import =====
@@ -2524,68 +1412,13 @@
 
     // Bodies can be several hundred KB and arrive slowly, so we abort on
     // silence rather than after a fixed total time.
-    const SUB_IDLE_MS = 30000;
-    // Backstop for a body that trickles forever without ever going silent.
-    const SUB_TOTAL_MS = 5 * 60 * 1000;
+    // SUB_IDLE_MS / SUB_TOTAL_MS live in pure.js (shared with subErrorText).
+    const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
+    // SUB_TOO_LARGE_MSG lives in pure.js (shared with subErrorText).
 
-    let subResults = [];
-    let subRawConfigs = [];
-    let subMode = 'link';
-    let subBusy = false;
-    // Two timers, not one: the progress throttle and the option debounce must
-    // not cancel each other.
-    let subProgressTimer = null;
-    let subRenderTimer = null;
+    // Fragment per-tab state lives in its createEnhanceTab instance (026); globals removed.
 
-    // Returns every proxy line found in a subscription body, whether it arrives
-    // as plain text, as one base64 blob, or as a mix of plain lines and
-    // per-line base64 blobs.
-    function extractSubConfigs(body) {
-        let text = (body || '').trim();
-        if (!text) return [];
-
-        const lines = extractLines(text);
-
-        // Plain text list that also carries per-line base64 blobs: keep every
-        // line, exactly as before, and append whatever the non-plain lines
-        // decode to. Inputs without any base64 line return byte-identical
-        // results to the old early-return.
-        if (lines.some(l => SUB_SCHEME.test(l))) {
-            const out = lines.slice();
-            const seen = new Set(out);
-            for (const line of lines) {
-                if (SUB_SCHEME.test(line)) continue;
-                const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
-                if (!decoded) continue;
-                for (const dl of extractLines(decoded)) {
-                    if (SUB_SCHEME.test(dl) && !seen.has(dl)) {
-                        seen.add(dl);
-                        out.push(dl);
-                    }
-                }
-            }
-            return out;
-        }
-
-        // Base64 body: try the whole payload first (standard subscription format),
-        // then line by line for providers that send a base64 blob per config.
-        const whole = safeAtob(text.replace(/\s+/g, ''));
-        if (whole) {
-            const decodedLines = extractLines(whole);
-            if (decodedLines.some(l => SUB_SCHEME.test(l))) {
-                return decodedLines;
-            }
-        }
-
-        // Last resort: some providers base64 each config on its own line. Only
-        // decoded lines that actually hold a proxy scheme count — otherwise any
-        // base64-looking word (an HTML file, a comment) becomes a "config".
-        return extractLines(text)
-            .map(l => safeAtob(l.replace(/^\/\/.*$/, '').trim()))
-            .filter(Boolean)
-            .flatMap(extractLines)
-            .filter(l => SUB_SCHEME.test(l));
-    }
+    // extractSubConfigs() lives in pure.js (shared global scope).
 
     // Streams the response so a large body can arrive over a slow link without
     // hitting a fixed timeout; the connection is aborted after SUB_IDLE_MS of
@@ -2613,10 +1446,22 @@
             // rely on the total-timeout backstop to end true stalls (worst case
             // for a stall here is the 5-minute total timeout, not the idle one).
             if (!res.body || typeof res.body.getReader !== 'function') {
+                // Garbage/missing header parses to NaN (or 0 via the || '0'
+                // fallback); NaN comparisons are always false, so throw
+                // pre-read ONLY on a known over-budget size — otherwise fall
+                // through to buffering, where the post-decode byte check
+                // (textBytes) enforces the cap (plan 030).
+                if (Number.isFinite(total) && total > SUB_MAX_FILE_BYTES) {
+                    throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
+                }
                 const keepAlive = setInterval(kick, Math.min(10000, SUB_IDLE_MS));
                 try {
                     const text = await res.text();
-                    onProgress(new TextEncoder().encode(text).length, total);
+                    const textBytes = new TextEncoder().encode(text).length;
+                    if (textBytes > SUB_MAX_FILE_BYTES) {
+                        throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
+                    }
+                    onProgress(textBytes, total);
                     return text;
                 } finally {
                     clearInterval(keepAlive);
@@ -2632,6 +1477,15 @@
                 kick();
                 parts.push(value);
                 loaded += value.length;
+                if (loaded > SUB_MAX_FILE_BYTES) {
+                    try { await reader.cancel(); } catch (_) {}
+                    // Deterministic teardown: releasing the reader does not
+                    // always close the connection, so abort it too — a >2 MiB
+                    // hostile body cannot linger. Reason keeps this distinct
+                    // from the total-timeout path in catch below (plan 031).
+                    ctrl.abort('over-budget');
+                    throw Object.assign(new Error('Subscription body exceeds 2 MiB'), { name: 'SubTooLarge' });
+                }
                 onProgress(loaded, total);
             }
 
@@ -2666,13 +1520,7 @@
         return await fetchTextWithProgress(url, onProgress);
     }
 
-    function setSubError(text) {
-        subParsed.textContent = '';
-        const err = document.createElement('div');
-        err.className = 'error-msg';
-        err.textContent = '⚠️ ' + text;
-        subParsed.appendChild(err);
-    }
+    // setSubError removed (026): closure setTabSubError in the fragTab controller.
 
     // Opens a subscription link for manual copying. The URL always comes from
     // the user's own paste (validated as a link before any call site runs),
@@ -2681,381 +1529,33 @@
         window.open(url, '_blank', 'noopener');
     }
 
-    // Enables the Open-link button exactly when the field holds a link.
-    function syncOpenButton() {
-        btnOpenSub.disabled = subValidate(subUrl.value.trim()) !== 'link';
-    }
+    // syncOpenButton removed (026): closure syncTabOpenButton in the fragTab controller.
 
-    // Step-by-step fallback shown when the provider blocks browser fetches.
-    // Built with DOM APIs only (no innerHTML): every string here is static,
-    // the only variable part is the link passed to window.open on click.
-    function setSubCorsGuide(linkUrl) {
-        const guide = document.createElement('div');
-        guide.className = 'sub-guide';
-        const title = document.createElement('div');
-        title.textContent = 'Get the content manually — 3 quick steps:';
-        const steps = document.createElement('ol');
-        const first = document.createElement('li');
-        first.textContent = 'Open your subscription link in a new tab: ';
-        const openBtn = document.createElement('button');
-        openBtn.type = 'button';
-        openBtn.className = 'btn-subtle';
-        openBtn.textContent = '↗ Open link';
-        openBtn.addEventListener('click', () => openSubLink(linkUrl));
-        first.appendChild(openBtn);
-        const second = document.createElement('li');
-        second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
-        const third = document.createElement('li');
-        third.textContent = 'Paste it into the box above and press Fetch & Enhance.';
-        steps.append(first, second, third);
-        guide.append(title, steps);
-        subParsed.appendChild(guide);
-    }
+    // setSubCorsGuide removed (026): closure setTabCorsGuide in the fragTab controller.
 
     // Accept a saved subscription file (.txt) dropped onto the card. Everything
     // stays local: FileReader never uploads anything.
-    const SUB_MAX_FILE_BYTES = 2 * 1024 * 1024;
 
-    // A drop error must not leave a previous output on screen either.
-    function onSubDropError(text) {
-        setSubError(text);
-        subOutputSection.style.display = 'none';
-        subOutputUrl.textContent = '';
-        subOutputRemark.textContent = '';
-        subResults = [];
-        subRawConfigs = [];
-    }
-    function onSubDragOver(e) {
-        e.preventDefault();
-        subCard.classList.add('dragover');
-    }
-    function onSubDragLeave(e) {
-        e.preventDefault();
-        // dragleave also fires when moving between children of the card —
-        // only clear the highlight when the pointer truly leaves it.
-        if (e.relatedTarget && subCard.contains(e.relatedTarget)) return;
-        subCard.classList.remove('dragover');
-    }
-    function onSubDrop(e) {
-        e.preventDefault();
-        subCard.classList.remove('dragover');
-        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (!file) return;
-        if (file.size > SUB_MAX_FILE_BYTES) {
-            onSubDropError('That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.');
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            subUrl.value = String(reader.result || '');
-            onSubInput();
-            subUrl.focus();
-        };
-        reader.onerror = () => onSubDropError('Could not read that file.');
-        reader.readAsText(file);
-    }
+    // Fragment drop handlers removed (026): closures in the fragTab controller.
 
-    // Transport failures surface as TypeError in every browser, but the message
-    // text varies ('Failed to fetch', 'NetworkError', 'Load failed', or even
-    // empty), so match the name first and the text only as fallback.
-    function subIsBlockedError(e) {
-        const msg = (e && e.message) || String(e);
-        return (e && e.name === 'TypeError') || /Failed to fetch|NetworkError|Load failed/i.test(msg);
-    }
-
-    // Reports the fetch error honestly. A 4xx/5xx from the provider is a real
-    // answer, and the CORS case gets a message that points at the paste fallback.
-    function subErrorText(e) {
-        const msg = (e && e.message) || String(e);
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            return 'You appear to be offline — check your connection and try again.';
-        }
-        if (e && e.name === 'SubTotalTimeout') {
-            return 'The download took longer than ' + Math.round(SUB_TOTAL_MS / 60000) +
-                ' minutes without finishing — the provider is too slow. Retry, or paste the subscription contents into this box.';
-        }
-        if (e && e.name === 'AbortError') {
-            return 'The connection went silent for ' + Math.round(SUB_IDLE_MS / 1000) +
-                's — the provider is throttling or unreachable. Retry, or paste the subscription contents into this box.';
-        }
-        if (/^HTTP \d+$/.test(msg)) {
-            const code = Number(msg.slice(5));
-            return 'The server replied ' + code + '. ' +
-                (code === 401 || code === 403
-                    ? 'That looks like an expired or invalid subscription link.'
-                    : code === 404
-                        ? 'That subscription link does not exist.'
-                        : 'The subscription URL is wrong or the server is refusing it.');
-        }
-        if (subIsBlockedError(e)) {
-            return 'This provider blocks browser access (it sends no CORS headers), so the direct fetch ' +
-                'was refused. Open the link in a new tab and paste its contents into this box — that always works.';
-        }
-        return 'Could not read the response (' + msg + ').';
-    }
+    // subIsBlockedError() / subErrorText() live in pure.js (shared global scope).
 
     // Verdicts that allow the Fetch button to run.
     function subCanRun(mode) {
         return mode === 'link' || mode === 'content';
     }
 
-    function subShowInfo(label, value) {
-        subParsed.textContent = '';
-        const row = document.createElement('div');
-        row.className = 'info-row';
-        const key = document.createElement('span');
-        key.className = 'info-label';
-        key.textContent = label;
-        const val = document.createElement('span');
-        val.className = 'info-value';
-        val.textContent = value;
-        row.append(key, val);
-        subParsed.appendChild(row);
-    }
+    // subShowInfo removed (026): closure showTabInfo in the fragTab controller.
 
-    function onSubInput() {
-        const raw = subUrl.value.trim();
-        subCard.classList.remove('valid', 'invalid');
-        subProtocolTag.classList.remove('active');
-        subProtocolTag.textContent = '—';
-        subRawConfigs = [];
+    // onSubInput removed (026): closure onTabSubInput in the fragTab controller
+    // (busy guard added, invalid card class added, subMode cache dropped).
 
-        // Any edit invalidates the previous result: leaving a 65-line output and
-        // its Copy/Download buttons under a new error message is misleading.
-        subOutputSection.style.display = 'none';
-        subOutputUrl.textContent = '';
-        subOutputRemark.textContent = '';
-        subResults = [];
-        subParsed.textContent = '';
-        subHint.style.color = '';
-        btnOpenSub.disabled = true;
+    // renderSubResults removed (026): closure renderTabResults in the fragTab
+    // controller (count rule unchanged — fragment's skipped++ was adopted).
 
-        if (!raw) {
-            btnSub.disabled = true;
-            subHint.textContent = 'Paste a subscription link — or its contents — to enable';
-            return;
-        }
-
-        subMode = subValidate(raw);
-        if (subMode === 'link') {
-            const u = new URL(raw);
-            subCard.classList.add('valid');
-            subProtocolTag.textContent = u.protocol.replace(':', '').toUpperCase() || 'HTTP';
-            subProtocolTag.classList.add('active');
-            subShowInfo('Host', u.hostname);
-            btnSub.disabled = false;
-            btnOpenSub.disabled = false;
-            subHint.textContent = 'Ready to fetch and enhance';
-            subHint.style.color = '#4cdf86';
-            return;
-        }
-
-        if (subMode === 'content') {
-            subCard.classList.add('valid');
-            subProtocolTag.textContent = 'CONTENT';
-            subProtocolTag.classList.add('active');
-            subShowInfo('Mode', 'Pasted content — nothing will be fetched');
-            btnSub.disabled = false;
-            subHint.textContent = 'Ready to enhance pasted content';
-            subHint.style.color = '#4cdf86';
-            return;
-        }
-
-        if (subMode === 'proxy') {
-            subMode = null;
-            setSubError('That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.');
-            btnSub.disabled = true;
-            subHint.textContent = 'Paste a subscription link or a VLESS/Trojan URL';
-            return;
-        }
-
-        subMode = null;
-        setSubError('Invalid input. Paste a link starting with http:// or https://, or paste the subscription contents.');
-        btnSub.disabled = true;
-        subHint.textContent = 'Paste a valid link above to enable';
-    }
-
-    // Single render path for both modes: enhance the parsed configs, show counts,
-    // and hand the same text to the copy / .txt / base64 .txt actions.
-    // focus=true is passed only by an explicit Fetch — an option tweak re-renders
-    // in place and must not yank the page down to the output.
-    function renderSubResults(configs, focus) {
-        let enhanced = [];
-        let skipped = 0;
-        let invalid = 0;
-        configs.forEach(line => {
-            const p = parseProxyURLSingle(line);
-            if (!p || p.error) {
-                invalid++;
-                return;
-            }
-            if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
-                skipped++;
-                return;
-            }
-            const res = enhanceURL(line, { ignoreServer: true });
-            if (res && res.url) {
-                enhanced.push(res.url);
-            } else {
-                skipped++;
-            }
-        });
-
-        if (enhanced.length === 0) {
-            subOutputSection.style.display = 'none';
-            subResults = [];
-            subHint.textContent = configs.length
-                ? 'Found configs, but none were VLESS/Trojan with a usable URL'
-                : 'No proxy configs found in the input';
-            subHint.style.color = '#f0c040';
-            subCard.classList.remove('valid');
-            subCard.classList.add('invalid');
-            setSubError(configs.length
-                ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
-                : 'No recognizable VLESS/VMess/Trojan/SS/SOCKS configs in the input. Open the link in a new tab and paste its contents here.');
-            return;
-        }
-
-        subResults = enhanced;
-
-        // A previous fetch may have failed without an edit in between — its
-        // error and its red card styling must not sit next to this output.
-        subParsed.textContent = '';
-        subCard.classList.remove('invalid');
-        subCard.classList.add('valid');
-
-        const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
-        if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
-        if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
-        subOutputRemark.textContent = parts.join(' · ');
-        subOutputUrl.textContent = enhanced.join('\n');
-        subOutputSection.style.display = 'block';
-        if (focus) subOutputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        subHint.textContent = 'Done';
-        subHint.style.color = '#4cdf86';
-    }
-
-    // Options live in the same tab, so changing fp / cs / fm re-enhances
-    // the configs fetched earlier instead of leaving a stale output on screen.
-    function scheduleSubRender() {
-        if (subBusy || !subRawConfigs.length) return;
-        clearTimeout(subRenderTimer);
-        subRenderTimer = setTimeout(() => {
-            subRenderTimer = null;
-            if (subBusy || !subRawConfigs.length) return;
-            renderSubResults(subRawConfigs);
-        }, 300);
-    }
-
-    // Shared by the fetch success and error paths: the field changed mid-fetch,
-    // so drop whatever came back and say so — never render anything, error or
-    // output, under input it no longer belongs to.
-    function onSubStale() {
-        subRawConfigs = [];
-        btnSub.disabled = !subCanRun(subValidate(subUrl.value.trim()));
-        syncOpenButton();
-        subHint.textContent = 'Input changed during the fetch — fetch again';
-        subHint.style.color = '#f0c040';
-    }
-
-    function onSubFetched(body, fetchRaw) {
-        if (!subBusy) return;
-        subBusy = false;
-        // A queued progress tick must not overwrite the final status.
-        if (subProgressTimer) {
-            clearTimeout(subProgressTimer);
-            subProgressTimer = null;
-        }
-        if (subRenderTimer) {
-            clearTimeout(subRenderTimer);
-            subRenderTimer = null;
-        }
-        // The field may have been replaced mid-fetch. Never render a body under
-        // input it no longer belongs to: the input handler already wiped the
-        // previous output, so there is nothing to show until the next fetch.
-        if (subUrl.value.trim() !== fetchRaw) {
-            onSubStale();
-            return;
-        }
-        btnSub.disabled = false;
-        syncOpenButton();
-        // Note: the Enhancer's server field and its lastAutoServer tracking are
-        // deliberately untouched here — subscriptions call enhanceURL with
-        // ignoreServer:true, so they never read the field, and clearing
-        // lastAutoServer alone would desync the auto-fill logic on next paste.
-        const configs = extractSubConfigs(body);
-        subRawConfigs = configs;
-        renderSubResults(configs, true);
-    }
-
-    function onSubProgress(loaded, total) {
-        if (subProgressTimer) return;
-        subProgressTimer = setTimeout(() => {
-            subProgressTimer = null;
-            if (!subBusy) return;
-            const kb = Math.round(loaded / 1024);
-            subHint.textContent = total
-                ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
-                : 'Fetching… ' + kb + ' KB';
-        }, 150);
-    }
-
-    async function onSub() {
-        const raw = subUrl.value.trim();
-        if (!raw || subBusy) return;
-
-        // Validate freshly rather than trusting the cached subMode: the field may
-        // have changed since the last input event.
-        subMode = subValidate(raw);
-        if (!subCanRun(subMode)) {
-            onSubInput();
-            return;
-        }
-
-        // Pasted content: no fetch at all.
-        if (subMode === 'content') {
-            subRawConfigs = extractSubConfigs(raw);
-            renderSubResults(subRawConfigs, true);
-            return;
-        }
-
-        subBusy = true;
-        btnSub.disabled = true;
-        btnOpenSub.disabled = true;
-        subHint.textContent = 'Fetching…';
-        subHint.style.color = '';
-        // A retry without an edit must not keep the previous error — or the
-        // previous red card styling — on screen. The old output is hidden too,
-        // so a failed retry cannot leave stale configs next to the new error.
-        subParsed.textContent = '';
-        subCard.classList.remove('invalid');
-        subOutputSection.style.display = 'none';
-        subResults = [];
-        subRawConfigs = [];
-
-        try {
-            const body = await fetchSubBody(raw, onSubProgress);
-            onSubFetched(body, raw);
-        } catch (e) {
-            subBusy = false;
-            if (subProgressTimer) {
-                clearTimeout(subProgressTimer);
-                subProgressTimer = null;
-            }
-            if (subUrl.value.trim() !== raw) {
-                onSubStale();
-                return;
-            }
-            btnSub.disabled = false;
-            syncOpenButton();
-            subHint.textContent = 'Fetch failed';
-            subHint.style.color = '#f05050';
-            subCard.classList.remove('valid');
-            subCard.classList.add('invalid');
-            setSubError(subErrorText(e));
-            if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setSubCorsGuide(raw);
-        }
-    }
+    // scheduleSubRender / onSubStale / onSubFetched / onSubProgress removed (026):
+    // closures scheduleTabRender / handleTabStale / onTabFetched / onTabProgress
+    // in the fragTab controller (300 ms + 150 ms shapes kept).
 
     function downloadText(name, text, mime) {
         const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
@@ -3092,40 +1592,669 @@
         });
     }
 
-    subUrl.addEventListener('input', onSubInput);
-    subClear.addEventListener('click', () => {
-        subUrl.value = '';
-        onSubInput();
-    });
-    btnSub.addEventListener('click', onSub);
-    btnOpenSub.addEventListener('click', () => {
-        const v = subUrl.value.trim();
-        if (subValidate(v) === 'link') openSubLink(v);
-    });
-    subCard.addEventListener('dragenter', onSubDragOver);
-    subCard.addEventListener('dragover', onSubDragOver);
-    subCard.addEventListener('dragleave', onSubDragLeave);
-    subCard.addEventListener('drop', onSubDrop);
-    // Re-run the enhancement when the shared options change (selects vs textareas).
-    [enhancerFp, enhancerFmPreset].forEach(el => el.addEventListener('change', scheduleSubRender));
-    [enhancerCs, enhancerFm].forEach(el => el.addEventListener('input', scheduleSubRender));
-    btnCopySub.addEventListener('click', () => copyTextWithFeedback(btnCopySub, subOutputUrl.textContent, subHint));
-    btnDownloadSub.addEventListener('click', () => {
-        if (!subResults.length) return;
-        downloadText('enhanced-configs.txt', subOutputUrl.textContent + '\n');
-    });
-    btnDownloadSubB64.addEventListener('click', () => {
-        if (!subResults.length) return;
-        // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
-        // Chunked because a spread over a few hundred KB overflows the arg limit.
-        // Exports exactly what is displayed (URL mode uses blank-line separation).
-        const bytes = new TextEncoder().encode(subOutputUrl.textContent);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    // ===== Unified enhance pipeline (Plan 026) =====
+    // Single fetch→extract→render→export flow parameterized by enhance fn + option
+    // handles. Parity policies (locked): fragment's skipped++ on both (single hardcoded path — no per-tab rule);
+    // busy guard (ECH freeze-button) on both; URL-input hides shared output (ECH)
+    // on both; remark host post-override re-read (ECH) on both; empty-enhance red
+    // hint (ECH wording) on both; failureCopy.noConfigs ECH wording on both;
+    // CORS step-3 + export filenames stay per-tab; 012 SSH guards + 018 helper
+    // routing + 019 b64 helper calls + 023 debounced schedulers preserved.
+    // Extra accepted fixes (see NOTES): fetch-start clears url/remark text (ECH) on
+    // both; drop-error re-validates (ECH) on both; input-invalid adds invalid card
+    // class (ECH) on both; fetch-completion clears queued render timer (fragment)
+    // on both; sub paste setTimeout(…,50) (ECH) as superset for both.
+    // pure.js is FROZEN — this consumes stable enhanceUrlCore/enhanceEchUrlCore
+    // signatures via enhanceSingle/enhanceBulk, never rewrites them.
+    function createEnhanceTab(cfg) {
+        const {
+            enhanceSingle, enhanceBulk,
+            ids, urlJoin, subJoin, remarkJoiner,
+            corsGuideStep3, exportNames, failureCopy,
+            showProtocolTag, busyGuardOnInput,
+            optionWatch, subCopy, copyHintEl, serverEl
+        } = cfg;
+        const {
+            urlInput, urlClear, urlParsed, urlProtocolTag, urlCard, btnUrlEnhance, urlHint,
+            subCard, subInput, subClear, subParsed, subProtocolTag,
+            btnSub, btnOpenSub, subHint,
+            outputSection, outputUrl, outputRemark,
+            btnCopy, btnDownload, btnDownloadB64
+        } = ids;
+        const bulkEnhance = enhanceBulk || ((line) => enhanceSingle(line, { ignoreServer: true }));
+        const URL_JOIN = urlJoin || '\n\n';
+        const SUB_JOIN = subJoin || '\n';
+        const REMARK_JOINER = remarkJoiner || ' · ';
+        let outputList = [];
+        let subRaw = [];
+        let lastSource = '';
+        let busy = false;
+        let progressTimer = null;
+        let renderTimer = null;
+        let lastAutoServerLocal = '';
+        let urlInputTimer = null;
+
+        function setTabSubError(text) {
+            subParsed.textContent = '';
+            const err = document.createElement('div');
+            err.className = 'error-msg';
+            err.textContent = '⚠️ ' + text;
+            subParsed.appendChild(err);
         }
-        downloadText('enhanced-configs-base64.txt', btoa(bin));
+
+        function showTabInfo(label, value) {
+            subParsed.textContent = '';
+            const row = document.createElement('div');
+            row.className = 'info-row';
+            const key = document.createElement('span');
+            key.className = 'info-label';
+            key.textContent = label;
+            const val = document.createElement('span');
+            val.className = 'info-value';
+            val.textContent = value;
+            row.append(key, val);
+            subParsed.appendChild(row);
+        }
+
+        function syncTabOpenButton() {
+            btnOpenSub.disabled = subValidate(subInput.value.trim()) !== 'link';
+        }
+
+        function onTabUrlInput() {
+            // URL edit invalidates shared output (ECH behavior) on BOTH tabs.
+            subRaw = [];
+            lastSource = '';
+            outputList = [];
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            const val = urlInput.value.trim();
+            const lines = extractLines(val);
+            let parsedList = [];
+            let unsupportedCount = 0;
+            let invalidCount = 0;
+            if (lines.length > 0) {
+                lines.forEach(line => {
+                    const p = parseProxyURLSingle(line);
+                    if (p && !p.error) {
+                        if (p.protocol === 'vless' || p.protocol === 'trojan') {
+                            parsedList.push(p);
+                        } else {
+                            unsupportedCount++;
+                        }
+                    } else {
+                        invalidCount++;
+                    }
+                });
+            }
+            if (parsedList.length === 1) {
+                const firstServer = parsedList[0].server || '';
+                const current = serverEl.value.trim();
+                if (!current || current === lastAutoServerLocal || current === firstServer) {
+                    serverEl.value = firstServer;
+                    lastAutoServerLocal = firstServer;
+                }
+            } else if (parsedList.length > 1) {
+                const current = serverEl.value.trim();
+                if (!current || current === lastAutoServerLocal) {
+                    serverEl.value = '';
+                    lastAutoServerLocal = '';
+                }
+            } else if (!serverEl.value.trim()) {
+                lastAutoServerLocal = '';
+            }
+            if (lines.length > 0) {
+                if (parsedList.length > 0) {
+                    renderParsedInfo(parsedList.length === 1 ? parsedList[0] : parsedList, urlParsed);
+                    const protocols = Array.from(new Set(parsedList.map(p => p.protocol)));
+                    if (protocols.length === 1) {
+                        updateProtocolTag(urlProtocolTag, parsedList[0]);
+                    } else {
+                        urlProtocolTag.textContent = 'MULTI';
+                        urlProtocolTag.classList.add('active');
+                        urlProtocolTag.style.color = '#7c5cff';
+                        urlProtocolTag.style.borderColor = '#7c5cff4d';
+                        urlProtocolTag.style.background = '#7c5cff1a';
+                    }
+                } else {
+                    renderParsedInfo({
+                        error: unsupportedCount > 0
+                            ? 'Only VLESS and Trojan URLs are supported'
+                            : 'Failed to parse URL'
+                    }, urlParsed);
+                    updateProtocolTag(urlProtocolTag, null);
+                }
+            } else {
+                renderParsedInfo(null, urlParsed);
+                updateProtocolTag(urlProtocolTag, null);
+            }
+            urlCard.classList.remove('valid', 'invalid');
+            if (lines.length > 0 && parsedList.length > 0) {
+                urlCard.classList.add('valid');
+            } else if (lines.length > 0) {
+                urlCard.classList.add('invalid');
+            }
+            const count = parsedList.length;
+            btnUrlEnhance.disabled = count === 0;
+            btnUrlEnhance.innerHTML = `<span class="btn-icon">✨</span> Enhance ${count > 1 ? count + ' URLs' : 'URL'}`;
+            urlHint.textContent = count > 0
+                ? `Ready to enhance ${count} URL${count > 1 ? 's' : ''}!`
+                : 'Paste VLESS or Trojan URL(s) above to enable';
+            urlHint.style.color = count > 0 ? '#4cdf86' : '';
+        }
+
+        function onTabUrlEnhance() {
+            const val = urlInput.value.trim();
+            const lines = extractLines(val);
+            if (lines.length === 0) {
+                outputSection.style.display = 'none';
+                return;
+            }
+            const enhancedUrls = [];
+            let firstEnhanced = null;
+            lines.forEach(line => {
+                const p = parseProxyURLSingle(line);
+                if (p && !p.error && (p.protocol === 'vless' || p.protocol === 'trojan')) {
+                    const res = enhanceSingle(line);
+                    if (res && res.url) {
+                        if (!firstEnhanced) firstEnhanced = p;
+                        enhancedUrls.push(res.url);
+                    }
+                }
+            });
+            if (enhancedUrls.length === 0) {
+                outputSection.style.display = 'none';
+                outputList = [];
+                urlHint.textContent = 'Could not enhance — check the URLs and the Server override';
+                urlHint.style.color = '#f05050';
+                return;
+            }
+            const count = enhancedUrls.length;
+            const firstParsed = firstEnhanced;
+            let remarkHost = firstParsed ? `${firstParsed.server}:${firstParsed.port}` : '';
+            try {
+                const firstOut = new URL(enhancedUrls[0]);
+                if (firstOut.hostname) remarkHost = firstOut.host;
+            } catch {
+                // keep the pre-enhance values
+            }
+            const remark = count === 1
+                ? (firstParsed && firstParsed.remark
+                    ? `✨ ${firstParsed.protocol.toUpperCase()} ${remarkHost} | enhanced`
+                    : '✨ Enhanced')
+                : `✨ Enhanced ${count} URLs`;
+            outputList = enhancedUrls;
+            outputRemark.textContent = remark;
+            outputUrl.textContent = enhancedUrls.join(URL_JOIN);
+            outputSection.style.display = 'block';
+            lastSource = 'url';
+            outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function scheduleTabUrlInput() {
+            if (!urlInput.value.trim()) {
+                clearTimeout(urlInputTimer);
+                urlInputTimer = null;
+                onTabUrlInput();
+                return;
+            }
+            clearTimeout(urlInputTimer);
+            urlInputTimer = setTimeout(() => {
+                urlInputTimer = null;
+                onTabUrlInput();
+            }, 150);
+        }
+
+        function onTabSubInput() {
+            const raw = subInput.value.trim();
+            if (busyGuardOnInput && busy) {
+                btnSub.disabled = true;
+                return;
+            }
+            subCard.classList.remove('valid', 'invalid');
+            if (showProtocolTag && subProtocolTag) {
+                subProtocolTag.classList.remove('active');
+                subProtocolTag.textContent = '—';
+            }
+            subRaw = [];
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            outputList = [];
+            subParsed.textContent = '';
+            subHint.style.color = '';
+            btnOpenSub.disabled = true;
+            if (!raw) {
+                btnSub.disabled = true;
+                btnOpenSub.disabled = true;
+                subHint.textContent = subCopy.empty;
+                return;
+            }
+            const mode = subValidate(raw);
+            if (mode === 'link') {
+                subCard.classList.add('valid');
+                if (showProtocolTag && subProtocolTag) {
+                    const u = new URL(raw);
+                    subProtocolTag.textContent = u.protocol.replace(':', '').toUpperCase() || 'HTTP';
+                    subProtocolTag.classList.add('active');
+                    showTabInfo('Host', u.hostname);
+                }
+                btnSub.disabled = false;
+                syncTabOpenButton();
+                subHint.textContent = subCopy.linkReady;
+                subHint.style.color = '#4cdf86';
+                return;
+            }
+            if (mode === 'content') {
+                subCard.classList.add('valid');
+                if (showProtocolTag && subProtocolTag) {
+                    subProtocolTag.textContent = 'CONTENT';
+                    subProtocolTag.classList.add('active');
+                    showTabInfo('Mode', 'Pasted content — nothing will be fetched');
+                }
+                btnSub.disabled = false;
+                syncTabOpenButton();
+                subHint.textContent = subCopy.contentReady;
+                subHint.style.color = '#4cdf86';
+                return;
+            }
+            if (mode === 'proxy') {
+                subCard.classList.add('invalid');
+                setTabSubError(subCopy.proxyError);
+                btnSub.disabled = true;
+                btnOpenSub.disabled = true;
+                subHint.textContent = subCopy.proxyHint;
+                return;
+            }
+            subCard.classList.add('invalid');
+            if (subCopy.invalidError) setTabSubError(subCopy.invalidError);
+            btnSub.disabled = true;
+            btnOpenSub.disabled = true;
+            subHint.textContent = subCopy.invalidHint;
+        }
+
+        function renderTabResults(configs, focus) {
+            let enhanced = [];
+            let skipped = 0;
+            let invalid = 0;
+            configs.forEach(line => {
+                if (!SUB_SCHEME.test(line)) {
+                    const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+                    if (decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l))) return;
+                }
+                const p = parseProxyURLSingle(line);
+                if (!p || p.error) {
+                    invalid++;
+                    return;
+                }
+                if (p.protocol !== 'vless' && p.protocol !== 'trojan') {
+                    skipped++;
+                    return;
+                }
+                const res = bulkEnhance(line);
+                if (res && res.url) {
+                    enhanced.push(res.url);
+                } else {
+                    // fragment's skipped++ (never relabels
+                    // parsed-but-unenhanceable as unparseable); ECH's
+                    // invalid-if-scheme branch is deleted.
+                    skipped++;
+                }
+            });
+            if (enhanced.length === 0) {
+                outputSection.style.display = 'none';
+                outputList = [];
+                subHint.textContent = configs.length
+                    ? 'Found configs, but none were VLESS/Trojan with a usable URL'
+                    : 'No proxy configs found in the input';
+                subHint.style.color = '#f0c040';
+                subCard.classList.remove('valid');
+                subCard.classList.add('invalid');
+                setTabSubError(configs.length
+                    ? configs.length + ' config(s) found, but none could be enhanced — only VLESS and Trojan URLs are supported.'
+                    : failureCopy.noConfigs);
+                return;
+            }
+            outputList = enhanced;
+            subParsed.textContent = '';
+            subCard.classList.remove('invalid');
+            subCard.classList.add('valid');
+            const parts = ['✨ ' + enhanced.length + ' enhanced config(s)'];
+            if (skipped) parts.push('skipped ' + skipped + ' non-VLESS/Trojan');
+            if (invalid) parts.push('ignored ' + invalid + ' unparseable line(s)');
+            outputRemark.textContent = parts.join(REMARK_JOINER);
+            outputUrl.textContent = enhanced.join(SUB_JOIN);
+            outputSection.style.display = 'block';
+            lastSource = 'sub';
+            if (focus) outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            subHint.textContent = 'Done';
+            subHint.style.color = '#4cdf86';
+        }
+
+        function scheduleTabRender() {
+            if (busy || !subRaw.length || lastSource !== 'sub') return;
+            clearTimeout(renderTimer);
+            renderTimer = setTimeout(() => {
+                renderTimer = null;
+                if (busy || !subRaw.length || lastSource !== 'sub') return;
+                renderTabResults(subRaw, false);
+            }, 300);
+        }
+
+        function handleTabStale() {
+            subRaw = [];
+            onTabSubInput();
+            subHint.textContent = 'Input changed during the fetch — fetch again';
+            subHint.style.color = '#f0c040';
+        }
+
+        function onTabFetched(body, fetchRaw) {
+            if (!busy) return;
+            busy = false;
+            if (progressTimer) {
+                clearTimeout(progressTimer);
+                progressTimer = null;
+            }
+            if (renderTimer) {
+                clearTimeout(renderTimer);
+                renderTimer = null;
+            }
+            if (subInput.value.trim() !== fetchRaw) {
+                handleTabStale();
+                return;
+            }
+            btnSub.disabled = false;
+            syncTabOpenButton();
+            const configs = extractSubConfigs(body);
+            subRaw = configs;
+            renderTabResults(configs, true);
+        }
+
+        function onTabProgress(loaded, total) {
+            if (progressTimer) return;
+            progressTimer = setTimeout(() => {
+                progressTimer = null;
+                if (!busy) return;
+                const kb = Math.round(loaded / 1024);
+                subHint.textContent = total
+                    ? 'Fetching… ' + kb + ' / ' + Math.round(total / 1024) + ' KB'
+                    : 'Fetching… ' + kb + ' KB';
+            }, 150);
+        }
+
+        async function onTabSub() {
+            const raw = subInput.value.trim();
+            if (!raw || busy) return;
+            const mode = subValidate(raw);
+            if (!subCanRun(mode)) {
+                onTabSubInput();
+                return;
+            }
+            if (mode === 'content') {
+                subRaw = extractSubConfigs(raw);
+                renderTabResults(subRaw, true);
+                return;
+            }
+            busy = true;
+            btnSub.disabled = true;
+            btnOpenSub.disabled = true;
+            subHint.textContent = 'Fetching…';
+            subHint.style.color = '';
+            subParsed.textContent = '';
+            subCard.classList.remove('invalid');
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            outputList = [];
+            subRaw = [];
+            try {
+                const body = await fetchSubBody(raw, onTabProgress);
+                onTabFetched(body, raw);
+            } catch (e) {
+                busy = false;
+                if (progressTimer) {
+                    clearTimeout(progressTimer);
+                    progressTimer = null;
+                }
+                if (subInput.value.trim() !== raw) {
+                    handleTabStale();
+                    return;
+                }
+                btnSub.disabled = false;
+                syncTabOpenButton();
+                subHint.textContent = 'Fetch failed';
+                subHint.style.color = '#f05050';
+                subCard.classList.remove('valid');
+                subCard.classList.add('invalid');
+                setTabSubError(subErrorText(e));
+                syncTabOpenButton();
+                if (subIsBlockedError(e) && (typeof navigator === 'undefined' || navigator.onLine !== false)) setTabCorsGuide(raw);
+            }
+        }
+
+        function setTabCorsGuide(linkUrl) {
+            const guide = document.createElement('div');
+            guide.className = 'sub-guide';
+            const title = document.createElement('div');
+            title.textContent = 'Get the content manually — 3 quick steps:';
+            const steps = document.createElement('ol');
+            const first = document.createElement('li');
+            first.textContent = 'Open your subscription link in a new tab: ';
+            const openBtn = document.createElement('button');
+            openBtn.type = 'button';
+            openBtn.className = 'btn-subtle';
+            openBtn.textContent = '↗ Open link';
+            openBtn.addEventListener('click', () => openSubLink(linkUrl));
+            first.appendChild(openBtn);
+            const second = document.createElement('li');
+            second.textContent = 'Select everything there and copy it (Ctrl+A, then Ctrl+C).';
+            const third = document.createElement('li');
+            third.textContent = corsGuideStep3;
+            steps.append(first, second, third);
+            guide.append(title, steps);
+            subParsed.appendChild(guide);
+        }
+
+        function onTabDropError(text) {
+            outputSection.style.display = 'none';
+            outputUrl.textContent = '';
+            outputRemark.textContent = '';
+            outputList = [];
+            subRaw = [];
+            onTabSubInput();
+            setTabSubError(text);
+        }
+
+        function onTabDragOver(e) {
+            e.preventDefault();
+            subCard.classList.add('dragover');
+        }
+
+        function onTabDragLeave(e) {
+            e.preventDefault();
+            if (e.relatedTarget && subCard.contains(e.relatedTarget)) return;
+            subCard.classList.remove('dragover');
+        }
+
+        function onTabDrop(e) {
+            e.preventDefault();
+            subCard.classList.remove('dragover');
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (!file) return;
+            if (file.size > SUB_MAX_FILE_BYTES) {
+                onTabDropError(SUB_TOO_LARGE_MSG);
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+                subInput.value = String(reader.result || '');
+                onTabSubInput();
+                subInput.focus();
+            };
+            reader.onerror = () => onTabDropError('Could not read that file.');
+            reader.readAsText(file);
+        }
+
+        function onTabUrlDragOver(e) {
+            e.preventDefault();
+            urlCard.classList.add('dragover');
+        }
+
+        function onTabUrlDragLeave(e) {
+            e.preventDefault();
+            if (e.relatedTarget && urlCard.contains(e.relatedTarget)) return;
+            urlCard.classList.remove('dragover');
+        }
+
+        function onTabUrlDrop(e) {
+            dropTextFileOnto(e, urlCard, urlInput, onTabUrlInput, urlHint);
+        }
+
+        function wireTab() {
+            urlInput.addEventListener('input', scheduleTabUrlInput);
+            urlInput.addEventListener('paste', scheduleTabUrlInput);
+            if (urlClear) urlClear.addEventListener('click', () => {
+                urlInput.value = '';
+                onTabUrlInput();
+            });
+            urlCard.addEventListener('dragenter', onTabUrlDragOver);
+            urlCard.addEventListener('dragover', onTabUrlDragOver);
+            urlCard.addEventListener('dragleave', onTabUrlDragLeave);
+            urlCard.addEventListener('drop', onTabUrlDrop);
+            btnUrlEnhance.addEventListener('click', onTabUrlEnhance);
+            if (btnCopy) btnCopy.addEventListener('click', () => copyTextWithFeedback(btnCopy, outputUrl.textContent, copyHintEl || subHint));
+            subInput.addEventListener('input', onTabSubInput);
+            subInput.addEventListener('paste', () => setTimeout(onTabSubInput, 50));
+            if (subClear) subClear.addEventListener('click', () => {
+                subInput.value = '';
+                onTabSubInput();
+            });
+            btnSub.addEventListener('click', onTabSub);
+            btnOpenSub.addEventListener('click', () => {
+                const v = subInput.value.trim();
+                if (subValidate(v) === 'link') openSubLink(v);
+            });
+            subCard.addEventListener('dragenter', onTabDragOver);
+            subCard.addEventListener('dragover', onTabDragOver);
+            subCard.addEventListener('dragleave', onTabDragLeave);
+            subCard.addEventListener('drop', onTabDrop);
+            (optionWatch || []).forEach(pair => {
+                const el = pair.el || pair[0];
+                const ev = pair.event || pair[1];
+                if (el && ev) el.addEventListener(ev, scheduleTabRender);
+            });
+            if (btnDownload) btnDownload.addEventListener('click', () => {
+                if (!outputList.length) return;
+                downloadText(exportNames.txt, outputUrl.textContent + '\n');
+            });
+            if (btnDownloadB64) btnDownloadB64.addEventListener('click', () => {
+                if (!outputList.length) return;
+                downloadText(exportNames.b64, encodeUtf8ToB64(outputUrl.textContent));
+            });
+        }
+
+        return {
+            onTabUrlInput, onTabUrlEnhance, scheduleTabUrlInput,
+            onTabSubInput, renderTabResults, scheduleTabRender,
+            onTabSub, onTabFetched, handleTabStale, onTabProgress,
+            setTabCorsGuide, syncTabOpenButton, wireTab,
+            getState: () => ({ outputList, subRaw, lastSource, busy })
+        };
+    }
+
+    // ECH tab instance (026): parity policies applied (skipped++ count, busy guard,
+    // hide-on-edit, post-override remark, red-hint failure, ECH noConfigs wording).
+    // IDs, filenames, option controls preserved; 019 helper calls + 023 scheduler
+    // shapes preserved via the controller.
+    const echTab = createEnhanceTab({
+        enhanceSingle: enhanceEchURL,
+        ids: {
+            urlInput: echInput, urlClear: echClear, urlParsed: echParsed,
+            urlProtocolTag: echProtocolTag, urlCard: echCard,
+            btnUrlEnhance: btnEchEnhance, urlHint: echHint,
+            subCard: echSubCard, subInput: echSubInput, subClear: echSubClear,
+            subParsed: echSubParsed, subProtocolTag: null,
+            btnSub: btnEchSub, btnOpenSub: btnEchOpenSub, subHint: echSubHint,
+            outputSection: echOutputSection, outputUrl: echOutputUrl,
+            outputRemark: echOutputRemark,
+            btnCopy: btnCopyEch, btnDownload: btnDownloadEch, btnDownloadB64: btnDownloadEchB64
+        },
+        serverEl: echServer,
+        urlJoin: '\n\n',
+        subJoin: '\n',
+        remarkJoiner: ' · ',
+        corsGuideStep3: 'Paste it into the subscription box above and press Fetch & Enhance Sub.',
+        exportNames: { txt: 'ech-enhanced-configs.txt', b64: 'ech-enhanced-configs-base64.txt' },
+        failureCopy: { noConfigs: 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.' },
+        showProtocolTag: false,
+        busyGuardOnInput: true,
+        optionWatch: [
+            { el: echFp, event: 'change' },
+            { el: echPreset, event: 'change' },
+            { el: echText, event: 'input' }
+        ],
+        subCopy: {
+            empty: 'Paste a subscription link — or its contents — above to enable',
+            linkReady: 'Ready to fetch & enhance',
+            contentReady: 'Ready to enhance pasted contents',
+            proxyHint: 'That looks like an HTTP proxy address, not a subscription',
+            proxyError: 'That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.',
+            invalidHint: 'Unrecognized input — paste a subscription link or its contents',
+            invalidError: null
+        },
+        copyHintEl: echHint
     });
+    echTab.wireTab();
+
+    // Fragment tab instance (026): same controller, fragment option set +
+    // per-tab data (filenames, CORS step-3, subCopy verbatim). Five intended
+    // behavior changes vs the deleted originals: busy guard on sub-input,
+    // URL-input hides shared output, post-override remark re-read, red-hint
+    // empty-enhance failure, ECH noConfigs wording. 019 helper calls + 023
+    // scheduler shapes preserved via the controller.
+    const fragTab = createEnhanceTab({
+        enhanceSingle: enhanceURL,
+        ids: {
+            urlInput: enhancerInput, urlClear: enhancerClear, urlParsed: enhancerParsed,
+            urlProtocolTag: enhancerProtocolTag, urlCard: enhancerCard,
+            btnUrlEnhance: btnEnhance, urlHint: enhanceHint,
+            subCard: subCard, subInput: subUrl, subClear: subClear,
+            subParsed: subParsed, subProtocolTag: subProtocolTag,
+            btnSub: btnSub, btnOpenSub: btnOpenSub, subHint: subHint,
+            outputSection: subOutputSection, outputUrl: subOutputUrl,
+            outputRemark: subOutputRemark,
+            btnCopy: btnCopySub, btnDownload: btnDownloadSub, btnDownloadB64: btnDownloadSubB64
+        },
+        serverEl: enhancerServer,
+        urlJoin: '\n\n',
+        subJoin: '\n',
+        remarkJoiner: ' · ',
+        corsGuideStep3: 'Paste it into the box above and press Fetch & Enhance.',
+        exportNames: { txt: 'enhanced-configs.txt', b64: 'enhanced-configs-base64.txt' },
+        failureCopy: { noConfigs: 'No recognizable VLESS/Trojan configs in the input. Open the link in a new tab and paste its contents here.' },
+        showProtocolTag: true,
+        busyGuardOnInput: true,
+        optionWatch: [
+            { el: enhancerFp, event: 'change' },
+            { el: enhancerFmPreset, event: 'change' },
+            { el: enhancerCs, event: 'input' },
+            { el: enhancerFm, event: 'input' }
+        ],
+        subCopy: {
+            empty: 'Paste a subscription link — or its contents — to enable',
+            linkReady: 'Ready to fetch and enhance',
+            contentReady: 'Ready to enhance pasted content',
+            proxyHint: 'Paste a subscription link or a VLESS/Trojan URL',
+            proxyError: 'That looks like an HTTP proxy address, not a subscription link. Only VLESS and Trojan URLs can be enhanced — paste one of those, or a subscription link. If this is actually a subscription served at a bare address with no path, open it in a new tab and paste its contents here instead.',
+            invalidHint: 'Paste a valid link above to enable',
+            invalidError: 'Invalid input. Paste a link starting with http:// or https://, or paste the subscription contents.'
+        },
+        copyHintEl: subHint
+    });
+    fragTab.wireTab();
+
+    // Fragment sub-input/fetch/copy/download wiring removed (026): owned by the
+    // fragTab instance (filenames + watched controls unchanged).
 
     // ===== Main Tab switching =====
     function switchMainTab(viewName) {
@@ -3186,14 +2315,47 @@
     }
 
     // ===== Wire Events =====
-    config1Input.addEventListener('input', () =>
-        onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true));
-    config2Input.addEventListener('input', () =>
-        onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false));
-    config1Input.addEventListener('paste', () =>
-        setTimeout(() => onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true), 50));
-    config2Input.addEventListener('paste', () =>
-        setTimeout(() => onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false), 50));
+    // Debounced chain-config inputs (150 ms keeps typing snappy): every
+    // keystroke re-parses and rebuilds the parsed-info panel, so the timer
+    // coalesces bursts from large pastes — same shape as scheduleSubRender
+    // (which uses 300 ms for option changes). An emptied field runs
+    // synchronously so button-disable feedback never lags a clear. Non-empty
+    // edits defer 150 ms; a Generate click inside that window is covered by
+    // the onGenerate flush (plan 027), which runs the pending parse first.
+    // Paste shares this scheduler: paste fires both paste and input, and one
+    // timer means one parse instead of two.
+    let config1InputTimer = null;
+    function scheduleConfig1Input() {
+        if (!config1Input.value.trim()) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+            return;
+        }
+        clearTimeout(config1InputTimer);
+        config1InputTimer = setTimeout(() => {
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }, 150);
+    }
+    let config2InputTimer = null;
+    function scheduleConfig2Input() {
+        if (!config2Input.value.trim()) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+            return;
+        }
+        clearTimeout(config2InputTimer);
+        config2InputTimer = setTimeout(() => {
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }, 150);
+    }
+    config1Input.addEventListener('input', scheduleConfig1Input);
+    config2Input.addEventListener('input', scheduleConfig2Input);
+    config1Input.addEventListener('paste', scheduleConfig1Input);
+    config2Input.addEventListener('paste', scheduleConfig2Input);
 
     clear1.addEventListener('click', () => {
         config1Input.value = '';
@@ -3355,68 +2517,12 @@
             hint.style.color = '#f05050';
         });
     }
-    function onEnhancerDragOver(e) {
-        e.preventDefault();
-        enhancerCard.classList.add('dragover');
-    }
-    function onEnhancerDragLeave(e) {
-        e.preventDefault();
-        // dragleave also fires when moving between children of the card —
-        // only clear the highlight when the pointer truly leaves it.
-        if (e.relatedTarget && enhancerCard.contains(e.relatedTarget)) return;
-        enhancerCard.classList.remove('dragover');
-    }
-    function onEnhancerDrop(e) {
-        dropTextFileOnto(e, enhancerCard, enhancerInput, onEnhancerInput, enhanceHint);
-    }
-    function onEchDragOver(e) {
-        e.preventDefault();
-        echCard.classList.add('dragover');
-    }
-    function onEchDragLeave(e) {
-        e.preventDefault();
-        // dragleave also fires when moving between children of the card —
-        // only clear the highlight when the pointer truly leaves it.
-        if (e.relatedTarget && echCard.contains(e.relatedTarget)) return;
-        echCard.classList.remove('dragover');
-    }
-    function onEchDrop(e) {
-        dropTextFileOnto(e, echCard, echInput, onEchInput, echHint);
-    }
-    echInput.addEventListener('input', onEchInput);
-    echInput.addEventListener('paste', () => setTimeout(onEchInput, 50));
-    echClear.addEventListener('click', () => {
-        echInput.value = '';
-        onEchInput();
-    });
-    echCard.addEventListener('dragenter', onEchDragOver);
-    echCard.addEventListener('dragover', onEchDragOver);
-    echCard.addEventListener('dragleave', onEchDragLeave);
-    echCard.addEventListener('drop', onEchDrop);
-    btnEchEnhance.addEventListener('click', onEchEnhance);
-    btnCopyEch.addEventListener('click', () => copyTextWithFeedback(btnCopyEch, echOutputUrl.textContent, echHint));
-    enhancerInput.addEventListener('input', onEnhancerInput);
-    enhancerInput.addEventListener('paste', () => setTimeout(onEnhancerInput, 50));
-    enhancerClear.addEventListener('click', () => {
-        enhancerInput.value = '';
-        onEnhancerInput();
-    });
-    enhancerCard.addEventListener('dragenter', onEnhancerDragOver);
-    enhancerCard.addEventListener('dragover', onEnhancerDragOver);
-    enhancerCard.addEventListener('dragleave', onEnhancerDragLeave);
-    enhancerCard.addEventListener('drop', onEnhancerDrop);
-    btnEnhance.addEventListener('click', onEnhance);
-    echSubInput.addEventListener('input', onEchSubInput);
-    echSubInput.addEventListener('paste', () => setTimeout(onEchSubInput, 50));
-    echSubClear.addEventListener('click', () => {
-        echSubInput.value = '';
-        onEchSubInput();
-    });
-    btnEchSub.addEventListener('click', onEchSub);
-    btnEchOpenSub.addEventListener('click', () => {
-        const raw = echSubInput.value.trim();
-        if (subValidate(raw) === 'link') openSubLink(raw);
-    });
+    // Fragment URL-card drag handlers removed (026): owned by the fragTab instance.
+    // ECH URL-card drag + debounced input + enhance/copy wiring removed (026):
+    // owned by the echTab instance (same dropTextFileOnto helper, 150 ms shape).
+    // Fragment URL-input debounce + card/enhance wiring removed (026): owned by
+    // the fragTab instance (same dropTextFileOnto helper, 150 ms shape).
+    // ECH sub-input/sub-button wiring removed (026): owned by the echTab instance.
     // ECH input-mode sub-tabs (scoped to #view-ech so the sing-box panels
     // driven by the generic switchSubTab are untouched).
     const echSubTabs = Array.from(document.querySelectorAll('#view-ech .sub-tab'));
@@ -3470,27 +2576,6 @@
     });
     // Downloads export exactly what is displayed, so Copy and both files
     // always agree (URL mode shows blank-line separation, sub mode single).
-    btnDownloadEch.addEventListener('click', () => {
-        if (!echOutputList.length) return;
-        downloadText('ech-enhanced-configs.txt', echOutputUrl.textContent + '\n');
-    });
-    btnDownloadEchB64.addEventListener('click', () => {
-        if (!echOutputList.length) return;
-        // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
-        // Chunked because a spread over a few hundred KB overflows the arg limit.
-        const bytes = new TextEncoder().encode(echOutputUrl.textContent);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-        }
-        downloadText('ech-enhanced-configs-base64.txt', btoa(bin));
-    });
-    echSubCard.addEventListener('dragenter', onEchSubDragOver);
-    echSubCard.addEventListener('dragover', onEchSubDragOver);
-    echSubCard.addEventListener('dragleave', onEchSubDragLeave);
-    echSubCard.addEventListener('drop', onEchSubDrop);
-    // Re-run stored subscription configs when the ECH options change.
-    // (Server is ignored for bulk input, so it is not watched.)
-    [echFp, echPreset].forEach(el => el.addEventListener('change', scheduleEchSubRender));
-    [echText].forEach(el => el.addEventListener('input', scheduleEchSubRender));
+    // ECH downloads / sub-card drag / option-watch wiring removed (026): owned
+    // by the echTab instance (filenames + watched controls unchanged).
 })();
