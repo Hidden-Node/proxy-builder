@@ -72,6 +72,12 @@ describe('encodeUtf8ToB64', () => {
         const text = 'vless://a@b:1\ntrojan://c@d:2\n' + 'سلام'.repeat(5000);
         assert.ok(!/[\r\n]/.test(encodeUtf8ToB64(text)));
     });
+
+    it('coerces falsy non-strings per 011 discipline (null/undefined stay empty)', () => {
+        assert.equal(safeAtob(encodeUtf8ToB64(0)), '0');
+        assert.equal(encodeUtf8ToB64(null), '');
+        assert.equal(encodeUtf8ToB64(undefined), '');
+    });
 });
 
 describe('safeDecode', () => {

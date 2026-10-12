@@ -42,7 +42,7 @@ function safeAtob(str) {
 // Standard subscription body: UTF-8 bytes -> base64, no line breaks.
 // Chunked because a spread over a few hundred KB overflows the arg limit.
 function encodeUtf8ToB64(text) {
-    const bytes = new TextEncoder().encode(text || '');
+    const bytes = new TextEncoder().encode(String(text ?? ''));
     let bin = '';
     for (let i = 0; i < bytes.length; i += 0x8000) {
         bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
