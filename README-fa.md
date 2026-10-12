@@ -89,6 +89,8 @@
 
 ## 🛠️ نحوه استفاده
 
+برای پشتیبانی کامل از کلیپ‌بورد، این پوشه را به‌صورت محلی سرو کنید — مثلاً `python3 -m http.server` یا `npx serve` — سپس از طریق `http://localhost:PORT` (یا HTTPS) باز کنید؛ باز کردن مستقیم فایل (`file://`) به کپی دستی برمی‌گردد.
+
 ### 🛡️ ECH
 <ol dir="rtl" style="direction: rtl; text-align: right;">
   <li>برنامه را باز کنید — تب <b>ECH</b> به‌صورت پیش‌فرض فعال است.</li>
@@ -210,6 +212,15 @@ TLS، Reality، None
   <li>منطق ارتقای <b>Fragment + Fingerprint</b> (افزودن پارامترهای <code>cs</code> / <code>fm</code> / <code>fp</code> و فرمت خروجی لینک) بر اساس رفتار «Export to Clipboard» پروژه‌ی <a href="https://github.com/patterniha/PattNG">PattNG</a> طراحی شده است.</li>
   <li>ابزار <b>Chain Builder</b> از منطق و ساختار پروژه متن‌باز <a href="https://github.com/bia-pain-bache/BPB-Worker-Panel">BPB-Worker-Panel</a> و این <a href="https://gist.github.com/alireza-delavari/62e56af0d59c92b5b1798f1442f90f61">تنظیمات Sing-box</a> ایده گرفته است.</li>
 </ul>
+
+## 📚 لاگ تصمیم‌ها
+
+تصمیم‌های قطعی در `plans/README.md` ثبت می‌شود (ملاک همان است — اگر این خلاصه قدیمی شد، لاگ معتبر است؛ اگر لاگ بزرگ‌تر شد، فقط به اشاره بسنده می‌کنیم):
+- رفتار بالک VMess رفتار مستند است، نه کمبود.
+- پریست‌های ECH قابل‌ویرایش رد شد — فیلد دستی مقادیر سفارشی را پوشش می‌دهد.
+- تفکیک گادفایل به تعویق افتاد تا پوشش pure کامل شود (011/016/017 در بازبینی انجام شد).
+- پاس‌ترو `domain+resolver` برای ech در Xray طبق مستندات Xray درست است (C-11 رد شد).
+- موارد سبز کم‌اهمیت (packet_encoding، نگاشت لاگ، قانون remote-dns، link rel، ماسک اعتبار) خارج از scope اپراتور است، نه رد بر اساس شایستگی.
 
 ---
 توسعه‌یافته با ❤️ برای حریم خصوصی شما.

@@ -45,6 +45,7 @@ moves the success morph into the shared helper.
 - Decision log lives in `plans/README.md` ("Findings considered and
   rejected" + "Deferred follow-ups") — check it before proposing VMess bulk
   enhancement, user-editable ECH presets, or a god-file split.
+- Feature/preset changes update BOTH `README.md` and `README-fa.md` in the same commit (plan 011's consistency test enforces the HTML half only).
 
 ## 4. Plan workflow
 
