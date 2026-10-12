@@ -1340,6 +1340,19 @@
     }
 
     function doCopy(btn, configGenerator) {
+        // Flush any debounced chain-input parse still waiting on its 150 ms
+        // timer, so a Generate click within the delay consumes the visible
+        // field contents, never stale parsedConfig1/2 (plan 027 + copy/download (plan 032)).
+        if (config1InputTimer) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }
+        if (config2InputTimer) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }
         if (!parsedConfig1 || !parsedConfig2) return;
         // Defense in depth: block Xray output for SSH configs even if the
         // buttons are enabled. NOTE: the function-identity check breaks if a
@@ -1354,6 +1367,19 @@
     }
 
     function doDownload(configGenerator, prefix) {
+        // Flush any debounced chain-input parse still waiting on its 150 ms
+        // timer, so a Generate click within the delay consumes the visible
+        // field contents, never stale parsedConfig1/2 (plan 027 + copy/download (plan 032)).
+        if (config1InputTimer) {
+            clearTimeout(config1InputTimer);
+            config1InputTimer = null;
+            onInputChange(config1Input, parsed1, protocol1Tag, config1Card, true);
+        }
+        if (config2InputTimer) {
+            clearTimeout(config2InputTimer);
+            config2InputTimer = null;
+            onInputChange(config2Input, parsed2, protocol2Tag, config2Card, false);
+        }
         if (!parsedConfig1 || !parsedConfig2) return;
         // Defense in depth: block Xray output for SSH configs even if the
         // buttons are enabled. NOTE: the function-identity check breaks if a
