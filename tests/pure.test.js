@@ -850,9 +850,9 @@ describe('026 parity (7) CORS step-3', () => {
 // Locked against the verbatim move from script.js: every case asserts the
 // FULL returned object, so a renamed key, changed default or dropped branch
 // fails loudly. Inputs are small and focused, not whole app configs.
-// QUIRKS RECORDED AS-IS (out of scope — do not "fix" inside golden updates):
-// - Xray alpn split keeps whitespace: 'h2, http/1.1' -> ['h2', ' http/1.1'].
-// - sing-box alpn split drops every 'h2' entry and keeps whitespace.
+// FIXED (trim) — goldens below assert the NEW behavior:
+// - Both alpn splits now trim entries: 'h2, http/1.1' -> Xray ['h2', 'http/1.1'], sing-box ['http/1.1'] (h2 still dropped).
+// - sing-box alpn split still drops every 'h2' entry (h2 keep is Step 5, operator-signed-off).
 // - sing-box vless always emits packet_encoding: ''.
 // - Empty alpn defaults to ['http/1.1'] in Xray but omits tls.alpn in sing-box.
 // - listen_port follows socks-port (||10808 fallback) / log mapping / remote-dns live in the DOM-bound
@@ -983,13 +983,13 @@ describe('buildStreamSettings', () => {
         });
     });
 
-    it('spaced alpn keeps the leading space (quirk, recorded)', () => {
+    it('spaced alpn is trimmed', () => {
         const out = buildStreamSettings({
             protocol: 'vless', uuid: 'u1', server: 'a.example.com', port: 443,
             type: 'ws', path: '/', security: 'tls', sni: 'a.example.com',
             alpn: 'h2, http/1.1'
         }, false);
-        assert.deepEqual(out.tlsSettings.alpn, ['h2', ' http/1.1']);
+        assert.deepEqual(out.tlsSettings.alpn, ['h2', 'http/1.1']);
     });
 
     it('missing alpn defaults to http/1.1', () => {
@@ -1279,13 +1279,13 @@ describe('buildSingboxOutbound', () => {
         });
     });
 
-    it('spaced alpn keeps the space and drops h2 (quirks, recorded)', () => {
+    it('spaced alpn is trimmed but h2 still dropped (pre-sign-off lock)', () => {
         const out = buildSingboxOutbound({
             protocol: 'vless', uuid: 'u1', server: 'a.example.com', port: 443,
             type: 'ws', path: '/', security: 'tls', sni: 'a.example.com',
             alpn: 'h2, http/1.1'
         }, 'proxy', null);
-        assert.deepEqual(out.tls.alpn, [' http/1.1']);
+        assert.deepEqual(out.tls.alpn, ['http/1.1']);
     });
 
     it('missing alpn omits tls.alpn (asymmetry with Xray, recorded)', () => {

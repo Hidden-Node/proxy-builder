@@ -1012,7 +1012,7 @@ const ECH_PRESETS = {
             stream.tlsSettings = {
                 serverName: params.sni || params.server,
                 fingerprint: params.fp || 'chrome',
-                alpn: params.alpn ? params.alpn.split(',') : ['http/1.1'],
+                alpn: params.alpn ? params.alpn.split(',').map(s => s.trim()).filter(Boolean) : ['http/1.1'],
                 allowInsecure: !!params.allowInsecure
             };
             // ECH support
@@ -1316,7 +1316,7 @@ const ECH_PRESETS = {
 
             // ALPN
             if (params.alpn) {
-                const alpnList = params.alpn.split(',').filter(v => v && v !== 'h2');
+                const alpnList = params.alpn.split(',').map(s => s.trim()).filter(v => v && v !== 'h2');
                 if (alpnList.length) tls.alpn = alpnList;
             }
 
