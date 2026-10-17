@@ -252,13 +252,22 @@ function subIsLink(v) {
     return !/\s/.test(v) && /^https?:\/\/\S+$/i.test(v);
 }
 
-// Mirrors extractSubConfigs() instead of guessing from the first line or a
-// length threshold: any line with a known scheme counts, and a short base64
-// blob is accepted if it actually decodes to a config.
+// Mirrors extractSubConfigs(): plain scheme lines count, the whole-body
+// blob counts when its decode holds a config, and per-line base64 blobs
+// count when EVERY line decodes to at least one config. The per-line rule
+// matters for padded chunks — their concatenation fails the whole-body
+// decode (mid-stream '=' padding), so without this branch the subscription
+// tab would reject bodies the bulk box accepts through expandBulkLines().
 function subLooksLikeContent(v) {
     if (extractLines(v).some(l => SUB_SCHEME.test(l))) return true;
     const whole = safeAtob(v.replace(/\s+/g, ''));
-    return !!whole && extractLines(whole).some(l => SUB_SCHEME.test(l));
+    if (whole && extractLines(whole).some(l => SUB_SCHEME.test(l))) return true;
+    const lines = extractLines(v);
+    if (lines.length === 0) return false;
+    return lines.every(line => {
+        const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+        return !!decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l));
+    });
 }
 
 // A single http(s) URL with an explicit port but no path, query or hash is
