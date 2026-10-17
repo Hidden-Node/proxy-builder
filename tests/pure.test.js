@@ -11,7 +11,7 @@ const {
     enhanceUrlCore, enhanceEchUrlCore,
     subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate,
     SUB_IDLE_MS, SUB_TOTAL_MS, SUB_TOO_LARGE_MSG,
-    extractSubConfigs, subIsBlockedError, subErrorText,
+    extractSubConfigs, expandBulkLines, subIsBlockedError, subErrorText,
     parseProxyURLSingle, parseProxyURL, parseVless, parseVmess,
     parseTrojan, parseShadowsocks, parseSocks, parseHttp,
     buildStreamSettings, buildProxyOutbound, buildChainOutbound, buildSingboxOutbound,
@@ -240,6 +240,26 @@ describe('parseProxyURLSingle', () => {
 
     it('rejects unknown schemes', () => {
         assert.match(parseProxyURLSingle('gopher://x').error, /Unknown protocol/);
+    });
+
+    it('refuses a base64 body with several configs instead of merging them', () => {
+        // Regression: the base64 fallback recursed on the decoded body, and
+        // new URL() strips line breaks — so a pasted subscription collapsed
+        // into one VLESS link whose remark swallowed the rest.
+        const blob = Buffer.from(VLESS_GOOD + '\n' + TROJAN_GOOD, 'utf8').toString('base64');
+        const r = parseProxyURLSingle(blob);
+        assert.ok(r && r.error, 'expected an error, not a merged config');
+        assert.match(r.error, /several configs/);
+    });
+
+    it('still base64-decodes a single link whose remark spans lines', () => {
+        // A %0A in the remark is not a second config: only lines that start
+        // with a proxy scheme count, so this must keep parsing as one link.
+        const one = 'vless://uuid-1@a.example.com:443?security=tls#Hello%0AWorld';
+        const blob = Buffer.from(one, 'utf8').toString('base64');
+        const r = parseProxyURLSingle(blob);
+        assert.equal(r.protocol, 'vless');
+        assert.equal(r.server, 'a.example.com');
     });
 });
 
@@ -609,6 +629,63 @@ describe('extractSubConfigs', () => {
         assert.deepEqual(extractSubConfigs(b64(lineA) + '\n' + b64(lineB)), [lineA, lineB]);
     });
 
+    it('keeps every config of a per-line base64 body whose chunks lack padding', () => {
+        // Regression: concatenating two unpadded chunks, b64(a) + b64(b), is
+        // itself valid base64 and decodes to the single merged string a + b.
+        // The old whole-body-first order therefore collapsed the whole list
+        // into one config. 3-byte-aligned remarks guarantee no '=' padding.
+        let a = 'vless://a@b:1#x';
+        while (Buffer.byteLength(a, 'utf8') % 3 !== 0) a += 'x';
+        let b = 'trojan://c@d:2#y';
+        while (Buffer.byteLength(b, 'utf8') % 3 !== 0) b += 'y';
+        assert.ok(!b64(a).endsWith('=') && !b64(b).endsWith('='));
+        assert.equal(safeAtob(b64(a) + b64(b)), a + b); // the trap this guards
+        assert.deepEqual(extractSubConfigs(b64(a) + '\n' + b64(b)), [a, b]);
+    });
+
+    it('decodes per-line base64 vmess containers', () => {
+        const vm = vmessLink('per-line');
+        assert.deepEqual(extractSubConfigs(b64(vm)), [vm]);
+    });
+
+    it('still decodes a line-wrapped whole-body base64 blob', () => {
+        const whole = b64(lineA + '\n' + lineB);
+        const wrapped = (whole.match(/.{1,20}/g) || []).join('\n');
+        assert.deepEqual(extractSubConfigs(wrapped), [lineA, lineB]);
+    });
+
+    it('keeps every config of a wrapped whole-body blob under the standard 76-char wrap', () => {
+        // Regression for the per-line-first heuristic: with 25-byte config
+        // lines and a 76-char wrap, every wrapped chunk contains a full or
+        // cut-off config-looking fragment, so the per-line branch stole the
+        // decision — output had a truncated "vless://u@" and lost two configs.
+        const lines = [];
+        for (let i = 0; i < 6; i++) lines.push('vless://u@1.2.3.4:443#c0' + i);
+        const text = lines.join('\n');
+        const wrapped = (b64(text).match(/.{1,76}/g) || []).join('\n');
+        assert.deepEqual(extractSubConfigs(wrapped), lines);
+    });
+
+    it('keeps every config of a wrapped whole-body blob under a 64-char wrap', () => {
+        const lines = [];
+        for (let i = 0; i < 6; i++) lines.push('vless://u@1.2.3.4:443#c0' + i);
+        const text = lines.join('\n');
+        const wrapped = (b64(text).match(/.{1,64}/g) || []).join('\n');
+        assert.deepEqual(extractSubConfigs(wrapped), lines);
+    });
+
+    it('keeps long-line wrapped blobs on the whole-body path', () => {
+        const lines = [];
+        for (let i = 0; i < 4; i++) {
+            let l = 'vless://12345678-1234-1234-1234-1234567890ab@example-' + i +
+                '.com:443?security=reality&sni=example.com&fp=chrome#' + i;
+            while (l.length < 120) l += 'x';
+            lines.push(l);
+        }
+        const wrapped = (b64(lines.join('\n')).match(/.{1,76}/g) || []).join('\n');
+        assert.deepEqual(extractSubConfigs(wrapped), lines);
+    });
+
     it('merges mixed plain+base64 lines with dedupe', () => {
         const mixed = lineA + '\n' + b64(lineA) + '\n' + b64(lineB);
         // Original lines stay verbatim; decoded configs are appended once —
@@ -620,6 +697,100 @@ describe('extractSubConfigs', () => {
         assert.deepEqual(extractSubConfigs('hello-world-no-scheme'), []);
         assert.deepEqual(extractSubConfigs('<html>not a sub</html>'), []);
         assert.deepEqual(extractSubConfigs('   '), []);
+    });
+});
+
+describe('expandBulkLines', () => {
+    const lineA = 'vless://a@b:1';
+    const lineB = 'trojan://c@d:2';
+    const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+
+    it('returns a plain one-per-line list unchanged', () => {
+        assert.deepEqual(expandBulkLines(lineA + '\n' + lineB), [lineA, lineB]);
+    });
+
+    it('expands a whole-body base64 blob into every config', () => {
+        // The URL box receives the blob as a single line, which used to reach
+        // parseProxyURLSingle() and merge into one link.
+        assert.deepEqual(expandBulkLines(b64(lineA + '\n' + lineB)), [lineA, lineB]);
+    });
+
+    it('expands per-line base64 blobs', () => {
+        assert.deepEqual(expandBulkLines(b64(lineA) + '\n' + b64(lineB)), [lineA, lineB]);
+    });
+
+    it('expands a line-wrapped whole-body blob', () => {
+        const wrapped = (b64(lineA + '\n' + lineB).match(/.{1,20}/g) || []).join('\n');
+        assert.deepEqual(expandBulkLines(wrapped), [lineA, lineB]);
+    });
+
+    it('falls back to the raw lines so junk keeps its parse error', () => {
+        assert.deepEqual(expandBulkLines('not-a-url\nmore junk'), ['not-a-url', 'more junk']);
+    });
+
+    it('returns [] for blank input', () => {
+        assert.deepEqual(expandBulkLines('   '), []);
+        assert.deepEqual(expandBulkLines(''), []);
+    });
+
+    it('drops a raw base64 line its decode already adds (no duplicate output)', () => {
+        // A mixed body keeps raw b64 lines AND their decoded copies; the
+        // bulk box parses every line, so the config appeared twice in the
+        // enhance/download output. Subscription rendering already skips
+        // such raw lines (script.js renderTabResults) — mirror that here.
+        const mixed = lineA + '\n' + b64(lineB);
+        assert.deepEqual(expandBulkLines(mixed), [lineA, lineB]);
+    });
+
+    it('keeps a raw base64 line whose decode holds no config (parse error preserved)', () => {
+        const junkB64 = b64('not a config');
+        assert.deepEqual(expandBulkLines(lineA + '\n' + junkB64), [lineA, junkB64]);
+    });
+
+    it('keeps non-base64 junk lines verbatim (no scheme in decode either)', () => {
+        assert.deepEqual(expandBulkLines(lineA + '\nnot a url'), [lineA, 'not a url']);
+    });
+
+    it('still expands a pure blob body unchanged', () => {
+        assert.deepEqual(expandBulkLines(b64(lineA + '\n' + lineB)), [lineA, lineB]);
+    });
+});
+
+describe('subLooksLikeContent mirror parity', () => {
+    const lineA = 'vless://a@b:1';
+    const lineB = 'trojan://c@d:2';
+    const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+
+    it('accepts a per-line padded base64 body (whole-concat decode fails)', () => {
+        // Regression: the whole-body concatenation carries mid-stream '='
+        // padding and safeAtob() returns null, so the mirror said "not
+        // content" while extractSubConfigs() parsed 2 valid configs — the
+        // subscription tab rejected input the bulk box accepts.
+        const body = b64(lineA) + '\n' + b64(lineB);
+        assert.equal(subLooksLikeContent(body), true);
+        assert.equal(subValidate(body), 'content');
+    });
+
+    it('accepts a per-line unpadded base64 body', () => {
+        const a = lineA + '#x', b = lineB + '#y';
+        let aa = a; while (Buffer.byteLength(aa, 'utf8') % 3 !== 0) aa += 'x';
+        let bb = b; while (Buffer.byteLength(bb, 'utf8') % 3 !== 0) bb += 'y';
+        const body = b64(aa) + '\n' + b64(bb);
+        assert.equal(subLooksLikeContent(body), true);
+    });
+
+    it('accepts a line-wrapped whole-body blob (unchanged path)', () => {
+        const wrapped = (b64(lineA + '\n' + lineB).match(/.{1,20}/g) || []).join('\n');
+        assert.equal(subLooksLikeContent(wrapped), true);
+    });
+
+    it('rejects a body where any line decodes to no config', () => {
+        const junk = b64('not a config');
+        assert.equal(subLooksLikeContent(b64(lineA) + '\n' + junk), false);
+    });
+
+    it('rejects plain junk without schemes (unchanged path)', () => {
+        assert.equal(subLooksLikeContent('hello-world-no-scheme'), false);
     });
 });
 
