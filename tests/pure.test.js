@@ -756,6 +756,44 @@ describe('expandBulkLines', () => {
     });
 });
 
+describe('subLooksLikeContent mirror parity', () => {
+    const lineA = 'vless://a@b:1';
+    const lineB = 'trojan://c@d:2';
+    const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+
+    it('accepts a per-line padded base64 body (whole-concat decode fails)', () => {
+        // Regression: the whole-body concatenation carries mid-stream '='
+        // padding and safeAtob() returns null, so the mirror said "not
+        // content" while extractSubConfigs() parsed 2 valid configs — the
+        // subscription tab rejected input the bulk box accepts.
+        const body = b64(lineA) + '\n' + b64(lineB);
+        assert.equal(subLooksLikeContent(body), true);
+        assert.equal(subValidate(body), 'content');
+    });
+
+    it('accepts a per-line unpadded base64 body', () => {
+        const a = lineA + '#x', b = lineB + '#y';
+        let aa = a; while (Buffer.byteLength(aa, 'utf8') % 3 !== 0) aa += 'x';
+        let bb = b; while (Buffer.byteLength(bb, 'utf8') % 3 !== 0) bb += 'y';
+        const body = b64(aa) + '\n' + b64(bb);
+        assert.equal(subLooksLikeContent(body), true);
+    });
+
+    it('accepts a line-wrapped whole-body blob (unchanged path)', () => {
+        const wrapped = (b64(lineA + '\n' + lineB).match(/.{1,20}/g) || []).join('\n');
+        assert.equal(subLooksLikeContent(wrapped), true);
+    });
+
+    it('rejects a body where any line decodes to no config', () => {
+        const junk = b64('not a config');
+        assert.equal(subLooksLikeContent(b64(lineA) + '\n' + junk), false);
+    });
+
+    it('rejects plain junk without schemes (unchanged path)', () => {
+        assert.equal(subLooksLikeContent('hello-world-no-scheme'), false);
+    });
+});
+
 describe('subIsBlockedError', () => {
     it('matches TypeError by name and fetch text as fallback', () => {
         const t = new Error('whatever');
