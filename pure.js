@@ -389,9 +389,9 @@ function extractSubConfigs(body) {
 // and new URL() silently strips the line breaks, collapsing every config into
 // the first one's remark ("bulk paste shows one link"). extractSubConfigs
 // keeps raw base64 lines that decode to configs AND appends the decoded
-// copies; the subscription renderer skips such raw lines before parsing
-// (renderTabResults), but the bulk box would parse both copies — so drop
-// them here, where every bulk consumer funnels through. Junk that decodes
+// copies; the subscription tab's renderer skips such raw lines before
+// parsing, but the bulk box would parse both copies — so drop them here,
+// where every bulk consumer funnels through. Junk that decodes
 // to nothing counts as no config and stays, so genuinely invalid input
 // still surfaces the usual per-line parse error instead of looking empty.
 function expandBulkLines(raw) {
