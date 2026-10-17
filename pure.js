@@ -387,13 +387,21 @@ function extractSubConfigs(body) {
 // config lines via extractSubConfigs(). Without it the single blob line reaches
 // parseProxyURLSingle(), whose base64 fallback recurses on the decoded body —
 // and new URL() silently strips the line breaks, collapsing every config into
-// the first one's remark ("bulk paste shows one link"). Falls back to the raw
-// lines when nothing decodes so genuinely invalid input still surfaces the
-// usual per-line parse error instead of looking empty.
+// the first one's remark ("bulk paste shows one link"). extractSubConfigs
+// keeps raw base64 lines that decode to configs AND appends the decoded
+// copies; the subscription renderer skips such raw lines before parsing
+// (renderTabResults), but the bulk box would parse both copies — so drop
+// them here, where every bulk consumer funnels through. Junk that decodes
+// to nothing counts as no config and stays, so genuinely invalid input
+// still surfaces the usual per-line parse error instead of looking empty.
 function expandBulkLines(raw) {
     const value = (raw || '').trim();
     if (!value) return [];
-    const expanded = extractSubConfigs(value);
+    const expanded = extractSubConfigs(value).filter(line => {
+        if (SUB_SCHEME.test(line)) return true;
+        const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+        return !(decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l)));
+    });
     return expanded.length ? expanded : extractLines(value);
 }
 
