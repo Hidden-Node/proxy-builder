@@ -337,16 +337,26 @@ function extractSubConfigs(body) {
         return out;
     }
 
-    // Per-line base64 (one base64 blob per config) must be decided BEFORE the
-    // whole-body decode below. Whole-body is the right first guess for a
-    // standard subscription, but it corrupts this shape: the lines are
-    // concatenated into a single base64 stream, and whenever a chunk does not
-    // end in '=' padding the merge decodes "successfully" into ONE line that
-    // swallows every following config into the first one's remainder — so a
-    // 50-config list came back as a single config. Requiring EVERY line to
-    // decode to at least one config keeps a genuinely line-wrapped whole-body
-    // blob on the whole-body path (its chunks decode to fragments, not
-    // configs).
+    // Base64 body: try the whole payload first (standard subscription
+    // format, possibly wrapped across lines). This is also what keeps
+    // line-wrapped blobs correct: each wrapped chunk is a slice of the ONE
+    // underlying decoded text, and a slice that begins or ends mid-config
+    // still matches the scheme regex (a cut-off head like "vless://u@" or a
+    // tail like "ss://u@..."), so a per-line-everywhere test cannot
+    // distinguish the two shapes by itself. A genuinely per-line body whose
+    // chunks lack padding is exactly the shape whose whole-body merge
+    // DEGENERATES: the concatenation decodes to a single swallowed line, so
+    // the whole-body list holds at most one scheme line. Per-line therefore
+    // wins only when the whole-body decode fails or is degenerate (≤1
+    // scheme line), and the multi-config whole-body result always takes
+    // precedence.
+    const whole = safeAtob(text.replace(/\s+/g, ''));
+    const wholeLines = whole ? extractLines(whole) : [];
+    const wholeConfigs = wholeLines.filter(l => SUB_SCHEME.test(l));
+    if (wholeConfigs.length > 1) {
+        return wholeLines;
+    }
+
     const perLine = [];
     let everyLineIsConfig = lines.length > 0;
     for (const line of lines) {
@@ -361,14 +371,8 @@ function extractSubConfigs(body) {
     }
     if (everyLineIsConfig && perLine.length > 0) return perLine;
 
-    // Base64 body: try the whole payload (standard subscription format,
-    // possibly wrapped across lines), then fall back to line by line.
-    const whole = safeAtob(text.replace(/\s+/g, ''));
-    if (whole) {
-        const decodedLines = extractLines(whole);
-        if (decodedLines.some(l => SUB_SCHEME.test(l))) {
-            return decodedLines;
-        }
+    if (whole && wholeLines.some(l => SUB_SCHEME.test(l))) {
+        return wholeLines;
     }
 
     // Last resort: keep whatever per-line configs were decoded above. Only
