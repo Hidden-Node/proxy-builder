@@ -654,6 +654,38 @@ describe('extractSubConfigs', () => {
         assert.deepEqual(extractSubConfigs(wrapped), [lineA, lineB]);
     });
 
+    it('keeps every config of a wrapped whole-body blob under the standard 76-char wrap', () => {
+        // Regression for the per-line-first heuristic: with 25-byte config
+        // lines and a 76-char wrap, every wrapped chunk contains a full or
+        // cut-off config-looking fragment, so the per-line branch stole the
+        // decision — output had a truncated "vless://u@" and lost two configs.
+        const lines = [];
+        for (let i = 0; i < 6; i++) lines.push('vless://u@1.2.3.4:443#c0' + i);
+        const text = lines.join('\n');
+        const wrapped = (b64(text).match(/.{1,76}/g) || []).join('\n');
+        assert.deepEqual(extractSubConfigs(wrapped), lines);
+    });
+
+    it('keeps every config of a wrapped whole-body blob under a 64-char wrap', () => {
+        const lines = [];
+        for (let i = 0; i < 6; i++) lines.push('vless://u@1.2.3.4:443#c0' + i);
+        const text = lines.join('\n');
+        const wrapped = (b64(text).match(/.{1,64}/g) || []).join('\n');
+        assert.deepEqual(extractSubConfigs(wrapped), lines);
+    });
+
+    it('keeps long-line wrapped blobs on the whole-body path', () => {
+        const lines = [];
+        for (let i = 0; i < 4; i++) {
+            let l = 'vless://12345678-1234-1234-1234-1234567890ab@example-' + i +
+                '.com:443?security=reality&sni=example.com&fp=chrome#' + i;
+            while (l.length < 120) l += 'x';
+            lines.push(l);
+        }
+        const wrapped = (b64(lines.join('\n')).match(/.{1,76}/g) || []).join('\n');
+        assert.deepEqual(extractSubConfigs(wrapped), lines);
+    });
+
     it('merges mixed plain+base64 lines with dedupe', () => {
         const mixed = lineA + '\n' + b64(lineA) + '\n' + b64(lineB);
         // Original lines stay verbatim; decoded configs are appended once —
