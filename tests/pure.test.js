@@ -732,6 +732,28 @@ describe('expandBulkLines', () => {
         assert.deepEqual(expandBulkLines('   '), []);
         assert.deepEqual(expandBulkLines(''), []);
     });
+
+    it('drops a raw base64 line its decode already adds (no duplicate output)', () => {
+        // A mixed body keeps raw b64 lines AND their decoded copies; the
+        // bulk box parses every line, so the config appeared twice in the
+        // enhance/download output. Subscription rendering already skips
+        // such raw lines (script.js renderTabResults) — mirror that here.
+        const mixed = lineA + '\n' + b64(lineB);
+        assert.deepEqual(expandBulkLines(mixed), [lineA, lineB]);
+    });
+
+    it('keeps a raw base64 line whose decode holds no config (parse error preserved)', () => {
+        const junkB64 = b64('not a config');
+        assert.deepEqual(expandBulkLines(lineA + '\n' + junkB64), [lineA, junkB64]);
+    });
+
+    it('keeps non-base64 junk lines verbatim (no scheme in decode either)', () => {
+        assert.deepEqual(expandBulkLines(lineA + '\nnot a url'), [lineA, 'not a url']);
+    });
+
+    it('still expands a pure blob body unchanged', () => {
+        assert.deepEqual(expandBulkLines(b64(lineA + '\n' + lineB)), [lineA, lineB]);
+    });
 });
 
 describe('subIsBlockedError', () => {
