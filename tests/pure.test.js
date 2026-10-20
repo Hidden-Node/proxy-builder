@@ -530,13 +530,15 @@ describe('html consistency', () => {
         assert.ok(html.includes('>https://8.8.8.8/dns-query</textarea>'));
     });
 
-    it('lists the recommended ech preset first', () => {
+    it('lists none first and the recommended ech preset first among the presets', () => {
         const open = html.indexOf('<select id="ech-preset">');
         const close = html.indexOf('</select>', open);
         const select = html.slice(open, close);
-        const first = select.match(/<option[^>]*>[^<]*<\/option>/)[0];
-        assert.ok(first.includes('value="ech-23"'), 'first option is ' + first);
-        assert.ok(first.includes('https://8.8.8.8/dns-query (recommended)'));
+        const options = select.match(/<option[^>]*>[^<]*<\/option>/g);
+        const presets = options.filter((o) => !/value="(none|custom)"/.test(o));
+        assert.ok(options[0].includes('value="none"'), 'first option is ' + options[0]);
+        assert.ok(presets[0].includes('value="ech-23"'), 'first preset is ' + presets[0]);
+        assert.ok(presets[0].includes('https://8.8.8.8/dns-query (recommended)'));
     });
 
     it('ships a protocol badge for every SUB_SCHEME entry with badge coverage', () => {
