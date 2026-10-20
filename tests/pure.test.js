@@ -530,6 +530,15 @@ describe('html consistency', () => {
         assert.ok(html.includes('>https://8.8.8.8/dns-query</textarea>'));
     });
 
+    it('lists the recommended ech preset first', () => {
+        const open = html.indexOf('<select id="ech-preset">');
+        const close = html.indexOf('</select>', open);
+        const select = html.slice(open, close);
+        const first = select.match(/<option[^>]*>[^<]*<\/option>/)[0];
+        assert.ok(first.includes('value="ech-23"'), 'first option is ' + first);
+        assert.ok(first.includes('https://8.8.8.8/dns-query (recommended)'));
+    });
+
     it('ships a protocol badge for every SUB_SCHEME entry with badge coverage', () => {
         // 'socks' badge covers both socks and socks5; tg has no badge and
         // http/ssh are chain-only with no SUB_SCHEME entry, so none of
