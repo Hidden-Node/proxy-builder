@@ -2009,10 +2009,20 @@
             }
         });
     }
+    function syncEchPreset() {
+        if (!echPreset || !echText) return;
+        echPreset.value = echPresetForValue(echText.value);
+    }
     if (echPreset) {
         echPreset.addEventListener('change', () => {
+            // 'custom' is a status label, not a loadable preset.
+            if (echPreset.value === 'custom') return;
             echText.value = ECH_PRESETS[echPreset.value] || '';
         });
+    }
+    if (echText) {
+        echText.addEventListener('input', syncEchPreset);
+        syncEchPreset();
     }
     // ===== Shared .txt drop onto URL cards =====
     // One helper for both URL cards: dropped text must equal pasted text, so
