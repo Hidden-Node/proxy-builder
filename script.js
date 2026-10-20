@@ -1193,8 +1193,7 @@
             outputSection.style.display = 'none';
             outputUrl.textContent = '';
             outputRemark.textContent = '';
-            const val = urlInput.value.trim();
-            const lines = extractLines(val);
+            const lines = expandBulkLines(urlInput.value);
             let parsedList = [];
             let unsupportedCount = 0;
             let invalidCount = 0;
@@ -1269,8 +1268,7 @@
         }
 
         function onTabUrlEnhance() {
-            const val = urlInput.value.trim();
-            const lines = extractLines(val);
+            const lines = expandBulkLines(urlInput.value);
             if (lines.length === 0) {
                 outputSection.style.display = 'none';
                 return;

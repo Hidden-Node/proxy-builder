@@ -13,7 +13,7 @@ All processing happens in your browser. No data is sent to any server — fetchi
 ## 🚀 Features
 
 ### 🛡️ ECH
-- **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `fp` and `ech` parameters added.
+- **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `fp` and `ech` parameters added. An encoded subscription pasted here (one whole base64 blob, a line-wrapped blob, or per-line base64) is expanded into every VLESS/Trojan config it holds instead of collapsing into a single link.
 - **Subscription Input**: Paste a subscription link to fetch it in your browser — or paste its contents (plain or base64) — to batch-enhance every VLESS/Trojan config inside with the same ECH options. The server override is ignored here (each config keeps its own address); changing the ECH options re-enhances the fetched configs without re-fetching.
 - **Server Override**: The server (IP/domain) field is auto-filled from the URL for a single config and is user-editable. With multiple configs the field stays empty and only applies to all configs if you type a custom value (supports IPv4, IPv6 and domains).
 - **Fingerprint**: Default `chrome`, with `unsafe`, `firefox`, `safari`, `random` and `none` options.
@@ -25,13 +25,13 @@ All processing happens in your browser. No data is sent to any server — fetchi
 - **Protocol Support**: **VLESS** and **Trojan**.
 
 ### 🧬 Fragment + Fingerprint
-- **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `cs`, `fm` and `fp` parameters added.
+- **Paste & Enhance**: Paste single or multiple `vless://` or `trojan://` URLs (one per line) and get enhanced links with `cs`, `fm` and `fp` parameters added. An encoded subscription pasted here (one whole base64 blob, a line-wrapped blob, or per-line base64) is expanded into every VLESS/Trojan config it holds instead of collapsing into a single link.
 - **Multi-Config Support**: Paste bulk proxy URL lists to parse, validate, and batch enhance all URLs cleanly without remark collision.
 - **Server Override**: The server (IP/domain) field is auto-filled from the URL for a single config and is user-editable. With multiple configs the field stays empty and only applies to all configs if you type a custom value (supports IPv4, IPv6 and domains).
 - **Fingerprint**: Default `unsafe`, with `chrome`, `firefox`, `safari`, `random` and `none` options.
 - **Fragment presets**: `fm` has `v1` (classic: `5,94,1` / `109,1` / split `355`) and `v2` (new, default: `0,104,1` / `114,1` / split `11`). Switch via the `Fragment Version` selector; the field stays editable for manual tweaks.
 - **TLS-aware**: `cs` and `fm` are only added when the config uses `tls` security. Clear a field to skip that parameter.
-- **Subscription sub-tab**: Paste a subscription link to fetch it directly in your browser, decode it (plain or base64) and batch-enhance every VLESS/Trojan config inside — or paste its contents / drop a saved `.txt` file to skip fetching. Uses the same `fp` / `cs` / `fm` options above; the server override is ignored (each config keeps its own address).
+- **Subscription sub-tab**: Paste a subscription link to fetch it directly in your browser, decode it (plain text, one base64 blob, or per-line base64) and batch-enhance every VLESS/Trojan config inside — or paste its contents / drop a saved `.txt` file to skip fetching. Uses the same `fp` / `cs` / `fm` options above; the server override is ignored (each config keeps its own address).
 - **Blocked Providers**: If the provider sends no CORS headers, the error shows 3 quick steps and an **Open link** button opens the URL in a new tab for copying.
 - **Export**: Copy to clipboard, download as `.txt` (one per line) or base64 `.txt` (standard subscription body).
 - **No ECH here**: ECH is applied only in the **ECH** tab — subscription entries never get an `ech` parameter.

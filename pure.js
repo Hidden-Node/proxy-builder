@@ -252,13 +252,22 @@ function subIsLink(v) {
     return !/\s/.test(v) && /^https?:\/\/\S+$/i.test(v);
 }
 
-// Mirrors extractSubConfigs() instead of guessing from the first line or a
-// length threshold: any line with a known scheme counts, and a short base64
-// blob is accepted if it actually decodes to a config.
+// Mirrors extractSubConfigs(): plain scheme lines count, the whole-body
+// blob counts when its decode holds a config, and per-line base64 blobs
+// count when EVERY line decodes to at least one config. The per-line rule
+// matters for padded chunks — their concatenation fails the whole-body
+// decode (mid-stream '=' padding), so without this branch the subscription
+// tab would reject bodies the bulk box accepts through expandBulkLines().
 function subLooksLikeContent(v) {
     if (extractLines(v).some(l => SUB_SCHEME.test(l))) return true;
     const whole = safeAtob(v.replace(/\s+/g, ''));
-    return !!whole && extractLines(whole).some(l => SUB_SCHEME.test(l));
+    if (whole && extractLines(whole).some(l => SUB_SCHEME.test(l))) return true;
+    const lines = extractLines(v);
+    if (lines.length === 0) return false;
+    return lines.every(line => {
+        const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+        return !!decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l));
+    });
 }
 
 // A single http(s) URL with an explicit port but no path, query or hash is
@@ -308,8 +317,8 @@ const SUB_TOTAL_MS = 5 * 60 * 1000;
 const SUB_TOO_LARGE_MSG = 'That file is too large — drop a plain-text subscription file (.txt), usually a few hundred KB at most.';
 
 // Returns every proxy line found in a subscription body, whether it arrives
-// as plain text, as one base64 blob, or as a mix of plain lines and
-// per-line base64 blobs.
+// as plain text, as one base64 blob (optionally line-wrapped), or as per-line
+// base64 blobs.
 function extractSubConfigs(body) {
     let text = (body || '').trim();
     if (!text) return [];
@@ -337,24 +346,72 @@ function extractSubConfigs(body) {
         return out;
     }
 
-    // Base64 body: try the whole payload first (standard subscription format),
-    // then line by line for providers that send a base64 blob per config.
+    // Base64 body: try the whole payload first (standard subscription
+    // format, possibly wrapped across lines). This is also what keeps
+    // line-wrapped blobs correct: each wrapped chunk is a slice of the ONE
+    // underlying decoded text, and a slice that begins or ends mid-config
+    // still matches the scheme regex (a cut-off head like "vless://u@" or a
+    // tail like "ss://u@..."), so a per-line-everywhere test cannot
+    // distinguish the two shapes by itself. A genuinely per-line body whose
+    // chunks lack padding is exactly the shape whose whole-body merge
+    // DEGENERATES: the concatenation decodes to a single swallowed line, so
+    // the whole-body list holds at most one scheme line. Per-line therefore
+    // wins only when the whole-body decode fails or is degenerate (≤1
+    // scheme line), and the multi-config whole-body result always takes
+    // precedence.
     const whole = safeAtob(text.replace(/\s+/g, ''));
-    if (whole) {
-        const decodedLines = extractLines(whole);
-        if (decodedLines.some(l => SUB_SCHEME.test(l))) {
-            return decodedLines;
-        }
+    const wholeLines = whole ? extractLines(whole) : [];
+    const wholeConfigs = wholeLines.filter(l => SUB_SCHEME.test(l));
+    if (wholeConfigs.length > 1) {
+        return wholeLines;
     }
 
-    // Last resort: some providers base64 each config on its own line. Only
+    const perLine = [];
+    let everyLineIsConfig = lines.length > 0;
+    for (const line of lines) {
+        const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+        if (!decoded) {
+            everyLineIsConfig = false;
+            continue;
+        }
+        const configs = extractLines(decoded).filter(l => SUB_SCHEME.test(l));
+        if (configs.length === 0) everyLineIsConfig = false;
+        perLine.push(...configs);
+    }
+    if (everyLineIsConfig && perLine.length > 0) return perLine;
+
+    if (whole && wholeLines.some(l => SUB_SCHEME.test(l))) {
+        return wholeLines;
+    }
+
+    // Last resort: keep whatever per-line configs were decoded above. Only
     // decoded lines that actually hold a proxy scheme count — otherwise any
     // base64-looking word (an HTML file, a comment) becomes a "config".
-    return extractLines(text)
-        .map(l => safeAtob(l.replace(/^\/\/.*$/, '').trim()))
-        .filter(Boolean)
-        .flatMap(extractLines)
-        .filter(l => SUB_SCHEME.test(l));
+    return perLine;
+}
+
+// The bulk URL box ("Paste URL(s)") advertises a one-per-line list, but users
+// routinely paste an encoded subscription instead. Expand that here: a whole
+// blob, a line-wrapped blob or per-line blobs all decode into their individual
+// config lines via extractSubConfigs(). Without it the single blob line reaches
+// parseProxyURLSingle(), whose base64 fallback recurses on the decoded body —
+// and new URL() silently strips the line breaks, collapsing every config into
+// the first one's remark ("bulk paste shows one link"). extractSubConfigs
+// keeps raw base64 lines that decode to configs AND appends the decoded
+// copies; the subscription tab's renderer skips such raw lines before
+// parsing, but the bulk box would parse both copies — so drop them here,
+// where every bulk consumer funnels through. Junk that decodes
+// to nothing counts as no config and stays, so genuinely invalid input
+// still surfaces the usual per-line parse error instead of looking empty.
+function expandBulkLines(raw) {
+    const value = (raw || '').trim();
+    if (!value) return [];
+    const expanded = extractSubConfigs(value).filter(line => {
+        if (SUB_SCHEME.test(line)) return true;
+        const decoded = safeAtob(line.replace(/^\/\/.*$/, '').trim());
+        return !(decoded && extractLines(decoded).some(l => SUB_SCHEME.test(l)));
+    });
+    return expanded.length ? expanded : extractLines(value);
 }
 
 // Transport failures surface as TypeError in every browser, but the message
@@ -421,6 +478,14 @@ function parseProxyURLSingle(raw) {
     try {
         const decoded = safeAtob(url);
         if (decoded) {
+            // A decoded value carrying more than one config line is a whole
+            // subscription body, not a single link. Recursing would let the
+            // WHATWG URL parser strip the line breaks and merge every config
+            // into the first one's remark — the "bulk paste shows one link"
+            // bug. Bulk callers expand it first (expandBulkLines).
+            if (extractLines(decoded).filter(l => SUB_SCHEME.test(l)).length > 1) {
+                return { error: 'That base64 value holds several configs — paste the list or use the Subscription input' };
+            }
             if (decoded.includes('"add"')) {
                 return parseVmess('vmess://' + url);
             }
@@ -1445,6 +1510,6 @@ if (typeof module !== 'undefined' && module.exports) {
         maskString, truncateStr,
         subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate,
         SUB_IDLE_MS, SUB_TOTAL_MS, SUB_TOO_LARGE_MSG,
-        extractSubConfigs, subIsBlockedError, subErrorText
+        extractSubConfigs, expandBulkLines, subIsBlockedError, subErrorText
     };
 }
