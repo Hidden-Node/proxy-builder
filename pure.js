@@ -913,7 +913,7 @@ const FRAGMENT_PRESETS = {
 };
 // ECH presets (own tab) — selecting one overwrites the textarea, so
 // anything typed by hand afterwards is preserved. 'none' only clears it.
-// The textarea ships prefilled with the default (ech-1) preset value.
+// The textarea ships prefilled with the default (ech-23) preset value.
 const ECH_PRESETS = {
     'ech-1': 'cloudflare-ech.com+udp://1.1.1.1',
     'ech-2': 'cloudflare-ech.com+udp://9.9.9.9',
@@ -932,8 +932,24 @@ const ECH_PRESETS = {
     'ech-15': 'cloudflare-ech.com+udp://45.90.28.0',
     'ech-16': 'cloudflare-ech.com+udp://45.90.30.0',
     'ech-17': 'cloudflare-ech.com+udp://185.228.168.9',
-    'ech-18': 'cloudflare-ech.com+udp://185.228.169.9'
+    'ech-18': 'cloudflare-ech.com+udp://185.228.169.9',
+    'ech-19': 'iranva.ir+udp://1.1.1.1',
+    'ech-20': 'crypto.cloudflare.com+udp://1.1.1.1',
+    'ech-21': 'https://94.140.14.14/dns-query',
+    'ech-22': 'https://9.9.9.9/dns-query',
+    'ech-23': 'https://8.8.8.8/dns-query'
 };
+
+// Which <select> option matches the current textarea value:
+// empty -> 'none' (skip ech), exact preset -> its key, anything else -> 'custom'.
+function echPresetForValue(raw) {
+    const value = String(raw ?? '').trim();
+    if (!value) return 'none';
+    for (const [key, preset] of Object.entries(ECH_PRESETS)) {
+        if (preset === value) return key;
+    }
+    return 'custom';
+}
 
 // ===== Config Builders =====
 // Moved verbatim from script.js (DOM-free): Xray + sing-box outbound builders.
@@ -1421,6 +1437,7 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         safeAtob, encodeUtf8ToB64, safeDecode, extractLines,
         getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
+        echPresetForValue,
         ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
         enhanceUrlCore, enhanceEchUrlCore,
         parseProxyURLSingle, parseProxyURL, parseVless, parseVmess, parseTrojan, parseShadowsocks, parseSocks, parseHttp,

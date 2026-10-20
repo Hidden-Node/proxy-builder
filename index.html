@@ -448,7 +448,8 @@
                         <label for="ech-preset">ECH Server (preset)</label>
                         <select id="ech-preset">
                             <option value="none">none — leave ech empty</option>
-                            <option value="ech-1" selected>cloudflare-ech.com + udp://1.1.1.1 (recommended)</option>
+                            <option value="custom" disabled>custom — manual value</option>
+                            <option value="ech-1">cloudflare-ech.com + udp://1.1.1.1</option>
                             <option value="ech-2">cloudflare-ech.com + udp://9.9.9.9</option>
                             <option value="ech-3">cloudflare-ech.com + udp://208.67.222.222</option>
                             <option value="ech-4">cloudflare-ech.com + udp://8.8.8.8</option>
@@ -466,11 +467,16 @@
                             <option value="ech-16">cloudflare-ech.com + udp://45.90.30.0</option>
                             <option value="ech-17">cloudflare-ech.com + udp://185.228.168.9</option>
                             <option value="ech-18">cloudflare-ech.com + udp://185.228.169.9</option>
+                            <option value="ech-19">iranva.ir + udp://1.1.1.1</option>
+                            <option value="ech-20">crypto.cloudflare.com + udp://1.1.1.1</option>
+                            <option value="ech-21">https://94.140.14.14/dns-query</option>
+                            <option value="ech-22">https://9.9.9.9/dns-query</option>
+                            <option value="ech-23" selected>https://8.8.8.8/dns-query (recommended)</option>
                         </select>
                     </div>
                     <div class="setting-item setting-item-wide">
                         <label for="ech-text">ECH Config List (ech) — empty to skip</label>
-                        <textarea id="ech-text" class="setting-textarea" rows="2" spellcheck="false" placeholder="cloudflare-ech.com+https://dns.alidns.com/dns-query — a bare domain auto-adds +udp://8.8.8.8, or a base64 ECHConfigList">cloudflare-ech.com+udp://1.1.1.1</textarea>
+                        <textarea id="ech-text" class="setting-textarea" rows="2" spellcheck="false" placeholder="cloudflare-ech.com+https://dns.alidns.com/dns-query — a bare domain auto-adds +udp://8.8.8.8, or a base64 ECHConfigList">https://8.8.8.8/dns-query</textarea>
                     </div>
                 </div>
             </div>
@@ -525,9 +531,11 @@
                             value).</li>
                         <li><strong>ech</strong> — ECH Config List for Encrypted ClientHello. Use the
                             <code>ECH Server</code> selector to pick a preset (default
-                            <code>cloudflare-ech.com + Cloudflare udp://1.1.1.1</code>); the field stays editable
+                            <code>https://8.8.8.8/dns-query</code>); the field stays editable
                             for manual tweaks. A bare domain (e.g. <code>cloudflare-ech.com</code>) auto-adds
-                            <code>+udp://8.8.8.8</code>; a base64 ECHConfigList is passed through untouched.</li>
+                            <code>+udp://8.8.8.8</code>; a base64 ECHConfigList is passed through untouched.
+                            Editing the field manually switches the preset selector to
+                            <code>custom — manual value</code>; pick a preset to overwrite it.</li>
                         <li><strong>Server</strong> — IP/domain override, auto-filled from the pasted URL; empty to keep
                             the original address.</li>
                         <li><strong>Subscription Input</strong> — paste a subscription link to fetch it in your browser,

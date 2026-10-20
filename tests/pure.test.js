@@ -7,6 +7,7 @@ const pure = require('../pure.js');
 const {
     safeAtob, encodeUtf8ToB64, safeDecode, extractLines,
     getEchQueryServer, ECH_DNS_DEFAULT, isBareEchDomain, normalizeEchInput,
+    echPresetForValue,
     ECH_PRESETS, FRAGMENT_PRESETS, SUB_SCHEME,
     enhanceUrlCore, enhanceEchUrlCore,
     subIsLink, subLooksLikeContent, subLooksLikeProxy, subValidate,
@@ -171,21 +172,28 @@ describe('subValidate', () => {
 });
 
 describe('presets', () => {
-    it('locks the ech-1 default', () => {
+    it('keeps ech-1 and locks the ech-23 default', () => {
         assert.equal(ECH_PRESETS['ech-1'], 'cloudflare-ech.com+udp://1.1.1.1');
+        assert.equal(ECH_PRESETS['ech-23'], 'https://8.8.8.8/dns-query');
     });
 
-    it('locks the exact preset key set ech-1..ech-18', () => {
-        const expected = Array.from({ length: 18 }, (_, i) => 'ech-' + (i + 1));
+    it('locks the exact preset key set ech-1..ech-23', () => {
+        const expected = Array.from({ length: 23 }, (_, i) => 'ech-' + (i + 1));
         assert.deepEqual(Object.keys(ECH_PRESETS), expected);
     });
 
-    it('ships all 18 operator presets on cloudflare-ech.com over udp', () => {
-        const keys = Object.keys(ECH_PRESETS);
-        assert.equal(keys.length, 18);
-        for (const value of Object.values(ECH_PRESETS)) {
-            assert.match(value, /^cloudflare-ech\.com\+udp:\/\/[0-9.]+$/);
+    it('keeps the 18 original cloudflare+udp presets', () => {
+        for (let i = 1; i <= 18; i++) {
+            assert.match(ECH_PRESETS['ech-' + i], /^cloudflare-ech\.com\+udp:\/\/[0-9.]+$/);
         }
+    });
+
+    it('ships the five operator additions verbatim', () => {
+        assert.equal(ECH_PRESETS['ech-19'], 'iranva.ir+udp://1.1.1.1');
+        assert.equal(ECH_PRESETS['ech-20'], 'crypto.cloudflare.com+udp://1.1.1.1');
+        assert.equal(ECH_PRESETS['ech-21'], 'https://94.140.14.14/dns-query');
+        assert.equal(ECH_PRESETS['ech-22'], 'https://9.9.9.9/dns-query');
+        assert.equal(ECH_PRESETS['ech-23'], 'https://8.8.8.8/dns-query');
     });
 
     it('spot-checks preset values across the list', () => {
@@ -202,6 +210,33 @@ describe('presets', () => {
     it('matches known proxy schemes', () => {
         assert.equal(SUB_SCHEME.test('vless://x'), true);
         assert.equal(SUB_SCHEME.test('https://example.com/sub'), false);
+    });
+});
+
+describe('echPresetForValue', () => {
+    it('returns none for empty or whitespace-only input', () => {
+        assert.equal(echPresetForValue(''), 'none');
+        assert.equal(echPresetForValue('   '), 'none');
+        assert.equal(echPresetForValue(null), 'none');
+    });
+
+    it('returns the matching preset key for an exact trimmed value', () => {
+        assert.equal(echPresetForValue('cloudflare-ech.com+udp://1.1.1.1'), 'ech-1');
+        assert.equal(echPresetForValue('  iranva.ir+udp://1.1.1.1  '), 'ech-19');
+        assert.equal(echPresetForValue('crypto.cloudflare.com+udp://1.1.1.1'), 'ech-20');
+        assert.equal(echPresetForValue('https://94.140.14.14/dns-query'), 'ech-21');
+        assert.equal(echPresetForValue('https://9.9.9.9/dns-query'), 'ech-22');
+        assert.equal(echPresetForValue('https://8.8.8.8/dns-query'), 'ech-23');
+    });
+
+    it('returns custom for base64, bare domains, and unknown values', () => {
+        assert.equal(echPresetForValue('AEX+DQBBXgAgAAA='), 'custom');
+        assert.equal(echPresetForValue('cloudflare-ech.com'), 'custom');
+        assert.equal(echPresetForValue('example.com+udp://1.1.1.1'), 'custom');
+    });
+
+    it('compares exactly (no case folding or normalization)', () => {
+        assert.equal(echPresetForValue('Cloudflare-ech.com+udp://1.1.1.1'), 'custom');
     });
 });
 
@@ -461,6 +496,18 @@ describe('html consistency', () => {
         for (const key of Object.keys(ECH_PRESETS)) {
             assert.ok(html.includes('<option value="' + key + '"'), 'missing option for ' + key);
         }
+    });
+
+    it('ships the custom option, the ech-23 default, and the matching prefill', () => {
+        const open = html.indexOf('<select id="ech-preset">');
+        const close = html.indexOf('</select>', open);
+        const select = html.slice(open, close);
+        assert.ok(select.includes('<option value="custom" disabled>'));
+        assert.equal((select.match(/<option /g) || []).length, 25);
+        assert.equal((select.match(/ selected>/g) || []).length, 1);
+        assert.ok(select.includes('<option value="ech-23" selected>'));
+        assert.ok(!select.includes('<option value="ech-1" selected>'));
+        assert.ok(html.includes('>https://8.8.8.8/dns-query</textarea>'));
     });
 
     it('ships a protocol badge for every SUB_SCHEME entry with badge coverage', () => {
